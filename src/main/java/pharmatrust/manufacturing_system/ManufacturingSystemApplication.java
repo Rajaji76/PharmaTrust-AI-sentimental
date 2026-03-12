@@ -11,3 +11,4 @@ public class ManufacturingSystemApplication {
 	}
 
 }
+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

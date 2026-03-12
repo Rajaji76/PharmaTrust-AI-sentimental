@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PharmaTrust | Production Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --success: #27ae60; --danger: #e74c3c; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: var(--bg); display: flex; }
+        
+        /* Sidebar Styles */
+        .sidebar { width: 250px; background: var(--primary); color: white; height: 100vh; position: fixed; padding: 20px; }
+        .main-content { margin-left: 280px; padding: 30px; width: calc(100% - 300px); }
+        
+        /* Dashboard Cards */
+        .stats-container { display: flex; gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 12px; flex: 1; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid var(--success); }
+        
+        /* Form Section */
+        .glass-panel { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        input { padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin-right: 10px; width: 200px; }
+        button { padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.3s; }
+        .btn-primary { background: var(--success); color: white; }
+        
+        /* QR Grid Layout */
+        .box-container { background: white; border-radius: 15px; margin-bottom: 30px; overflow: hidden; border: 1px solid #eee; }
+        .box-header { background: #f8f9fa; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
+        .qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 20px; padding: 25px; }
+        .qr-item { text-align: center; font-size: 11px; padding: 10px; border: 1px solid #f0f0f0; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>PharmaTrust</h2>
+    <hr style="opacity: 0.2;">
+    <p>📊 Dashboard</p>
+    <p>📦 Inventory</p>
+    <p>🛡️ Recall System (Kill Switch)</p>
+    <p>⚙️ Settings</p>
+</div>
+
+<div class="main-content">
+    <div class="stats-container">
+        <div class="stat-card"><h3>1,000</h3><p>Active Units</p></div>
+        <div class="stat-card"><h3>10</h3><p>Master Boxes</p></div>
+        <div class="stat-card" style="border-left-color: #3498db;"><h3>Verified</h3><p>System Status</p></div>
+    </div>
+
+    <div class="glass-panel">
+    <h3>🧪 AI-Powered Compliance & Lab Upload</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div>
+            <label>Medicine & Batch Info</label>
+            <input type="text" id="medName" placeholder="Medicine Name" style="width:100%; margin-top:10px;">
+            <input type="text" id="batchNoInput" placeholder="Batch ID" style="width:100%; margin-top:10px;">
+        </div>
+        <div style="border-left: 2px dashed #ccc; padding-left: 20px;">
+            <label>Upload Verified Lab Report (PDF/JPG)</label>
+            <input type="file" id="labFile" style="width:100%; margin-top:10px; border:none;">
+            <p style="font-size: 11px; color: #666;">AI will verify: API Level, Purity, & Dissolution.</p>
+        </div>
+    </div>
+    <br>
+    <div id="ai-loader" style="display:none; color: var(--blue); font-weight: bold; margin-bottom: 10px;">
+        🤖 AI is analyzing report integrity... <span id="percent-load">0%</span>
+    </div>
+    <button class="btn-primary" onclick="processAIUpload()">Run AI Analysis & Deploy Batch</button>
+</div>
+
+    <div id="dashboard-items">
+        </div>
+</div>
+
+<script>
+ async function processAIUpload() {
+    const fileInput = document.getElementById('labFile');
+    const file = fileInput.files[0];
+    
+    if(!file) { alert("Please upload a Lab Report Image!"); return; }
+
+    const loader = document.getElementById('ai-loader');
+    loader.style.display = 'block';
+    
+    // ACTUAL AI SCANNING START
+    document.getElementById('percent-load').innerText = "AI is reading the document... please wait.";
+
+    try {
+        // Tesseract AI इमेज को रीड करेगा
+        const result = await Tesseract.recognize(file, 'eng');
+        const text = result.data.text;
+        console.log("AI Extracted Text:", text); // आप कंसोल में देख सकते हैं क्या पढ़ा
+
+        // टेक्स्ट में से वैल्यू निकालने का लॉजिक (Regex)
+        // मान लीजिये रिपोर्ट में लिखा है: "API: 499.5"
+        const apiMatch = text.match(/API[:\s]+(\d+\.?\d*)/i);
+        const purityMatch = text.match(/Purity[:\s]+(\d+\.?\d*)/i);
+
+        const extractedApi = apiMatch ? parseFloat(apiMatch[1]) : 0;
+        const extractedPurity = purityMatch ? parseFloat(purityMatch[1]) : 0;
+
+        if(extractedApi === 0 || extractedPurity === 0) {
+            alert("AI Error: Could not find clear API or Purity data in the report. Please upload a clear image.");
+            loader.style.display = 'none';
+            return;
+        }
+
+        alert(`AI Read Success!\nAPI: ${extractedApi}mg\nPurity: ${extractedPurity}%`);
+        generateBatchWithAI(extractedApi, extractedPurity);
+
+    } catch (error) {
+        console.error("AI Scan Error:", error);
+        alert("AI Scanning Failed!");
+    }
+}
+
+// 1. यहाँ arguments (api, purity) जोड़ें
+function generateBatchWithAI(api, purity) {
+    const name = document.getElementById('medName').value;
+    const batchNo = document.getElementById('batchNoInput').value;
+    
+    // अब यहाँ hardcoded 499.8 की जगह actual api और purity जाएगा
+    fetch(`http://localhost:8080/api/manufacturer/create-batch?name=${name}&batchNo=${batchNo}&qty=1000&api=${api}&purity=${purity}`, {
+        method: 'POST'
+    })
+    .then(res => {
+        if(res.ok) {
+            // यहाँ accuracy भी डायनामिक दिखा सकते हैं
+            alert(`AI Verification Passed! Data sent to Blockchain.`);
+            location.reload();
+        } else {
+            alert("Error in server. Check if Controller is updated.");
+        }
+    });
+}
+
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentBatch = urlParams.get('batchNo') || "BATCH-2026-001";
+
+    fetch(`http://localhost:8080/api/manufacturer/view-batch/${currentBatch}`)
+    .then(res => res.json())
+    .then(data => {
+        const dashboard = document.getElementById('dashboard-items');
+        const boxes = {};
+        data.forEach(unit => {
+            if (!boxes[unit.parentBoxId]) boxes[unit.parentBoxId] = [];
+            boxes[unit.parentBoxId].push(unit);
+        });
+
+        for (let boxId in boxes) {
+            const section = document.createElement('div');
+            section.className = 'box-container';
+            section.innerHTML = `
+                <div class="box-header">
+                    <div><strong>📦 Master Box: ${boxId}</strong></div>
+                    <div id="box-qr-${boxId.replace(/\s+/g, '-')}"></div>
+                    <button class="btn-primary" onclick="window.location.href='box-verify.html?boxId=${boxId}'">Manage Box</button>
+                </div>
+                <div class="qr-grid" id="grid-${boxId}"></div>
+            `;
+            dashboard.appendChild(section);
+
+            // Box QR
+            new QRCode(document.getElementById(`box-qr-${boxId.replace(/\s+/g, '-')}`), {
+                text: `http://localhost:8080/box-verify.html?boxId=${boxId}`,
+                width: 60, height: 60
+            });
+
+            // Units QR
+            boxes[boxId].forEach(unit => {
+                const qrDiv = document.createElement('div');
+                qrDiv.className = 'qr-item';
+                const canvasId = `qr-${unit.serialNumber.replace(/\s+/g, '-')}`;
+                qrDiv.innerHTML = `<div id="${canvasId}"></div><br><b>${unit.serialNumber}</b>`;
+                document.getElementById(`grid-${boxId}`).appendChild(qrDiv);
+                new QRCode(document.getElementById(canvasId), {
+                    text: `http://localhost:8080/verify.html?sn=${unit.serialNumber}`,
+                    width: 100, height: 100
+                });
+            });
+        }
+    });
+</script>
+</body>
+</html>
+
+
+

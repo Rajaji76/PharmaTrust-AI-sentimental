@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PharmaTrust | Regulator Authority</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .alert-card { background: #fff; padding: 20px; margin-top: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        .status-alert { color: #e74c3c; font-weight: bold; animation: blinker 1.5s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+        .btn-kill { background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
+        .btn-kill:hover { background: #c0392b; }
+        .accuracy-low { background: #ffeaea; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2>🛡️ Drug Regulatory Authority Dashboard</h2>
+        <span>Status: Connected to PharmaTrust Blockchain</span>
+    </div>
+
+    <div class="alert-card">
+        <h3>🚨 Real-Time AI Compliance Alerts</h3>
+        <table id="batchTable">
+            <thead>
+                <tr>
+                    <th>Batch ID</th>
+                    <th>Medicine</th>
+                    <th>AI Accuracy</th>
+                    <th>Current Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="batchData">
+                </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // 1. Load All Batches from Backend
+    function loadBatches() {
+        fetch('http://localhost:8080/api/regulator/all-batches')
+        .then(res => res.json())
+        .then(data => {
+            const tableBody = document.getElementById('batchData');
+            tableBody.innerHTML = '';
+            data.forEach(batch => {
+                const isLow = batch.aiAccuracyScore < 99; // 99% logic
+                const row = `
+                    <tr class="${isLow ? 'accuracy-low' : ''}">
+                        <td><b>${batch.batchNumber}</b></td>
+                        <td>${batch.medicineName}</td>
+                        <td class="${isLow ? 'status-alert' : ''}">${batch.aiAccuracyScore.toFixed(2)}%</td>
+                        <td><span id="stat-${batch.batchNumber}">${batch.status}</span></td>
+                        <td>
+                            <button class="btn-kill" onclick="killSwitch('${batch.batchNumber}')">🛑 RECALL</button>
+                        </td>
+                    </tr>`;
+                tableBody.innerHTML += row;
+            });
+        });
+    }
+
+    // 2. The Kill Switch Action
+    function killSwitch(batchNo) {
+        if(confirm("DANGER: Are you sure you want to RECALL this entire batch? This action is permanent!")) {
+            fetch(`http://localhost:8080/api/regulator/recall/${batchNo}`, { method: 'POST' })
+            .then(res => res.text())
+            .then(msg => {
+                alert(msg);
+                loadBatches(); // Refresh table
+            });
+        }
+    }
+
+    loadBatches();
+</script>
+</body>
+</html>

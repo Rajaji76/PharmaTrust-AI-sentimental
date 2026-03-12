@@ -1,0 +1,7 @@
+{
+  "specType": "feature",
+  "workflowType": "design-first",
+  "featureName": "pharmatrust-production-upgrade",
+  "designArtifacts": ["High-Level Design", "Low-Level Design"],
+  "createdAt": "2026-03-12T00:00:00Z"
+}

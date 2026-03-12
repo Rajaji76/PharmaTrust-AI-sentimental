@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Master Box Control</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
+        .box-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-top: 5px solid #007bff; }
+        .kill-switch { background: #dc3545; color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; font-weight: bold; margin-top: 20px; cursor: pointer; }
+        .unit-list { margin-top: 20px; max-height: 300px; overflow-y: auto; }
+        .unit-item { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; }
+        .status-ok { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="box-card">
+        <h2 id="box-title">📦 Master Box</h2>
+        <p id="total-count">Checking contents...</p>
+        
+        <div class="unit-list" id="unit-list">
+            </div>
+
+        <button class="kill-switch" onclick="activateKillSwitch()">
+            🛑 ACTIVATE GLOBAL KILL SWITCH
+        </button>
+    </div>
+
+    <script>
+        const boxId = new URLSearchParams(window.location.search).get('boxId');
+        document.getElementById('box-title').innerText = "📦 Box: " + boxId;
+
+        // बॉक्स का डेटा फेच करना
+        fetch(`http://localhost:8080/api/manufacturer/view-box/${boxId}`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('total-count').innerText = `Contains ${data.length} Units`;
+                const list = document.getElementById('unit-list');
+                data.forEach(unit => {
+                    list.innerHTML += `
+                        <div class="unit-item">
+                            <span>SN: ${unit.serialNumber}</span>
+                            <span class="status-ok">STATUS: ${unit.batch.status}</span>
+                        </div>`;
+                });
+            });
+
+        function activateKillSwitch() {
+            if(confirm("Warning! This will block all items in this box. Proceed?")) {
+                alert("Global Kill Switch Activated! All units are now BLOCKED.");
+                // यहाँ हम बाद में बैकएंड API कॉल करेंगे स्टेटस बदलने के लिए
+            }
+        }
+    </script>
+</body>
+</html>
+

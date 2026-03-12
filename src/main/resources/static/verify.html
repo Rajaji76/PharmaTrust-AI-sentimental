@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PharmaTrust | Product Verification</title>
+    <style>
+        :root { --success: #27ae60; --danger: #e74c3c; --warning: #f39c12; --blue: #3498db; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; display: flex; justify-content: center; }
+        .verification-card { width: 100%; max-width: 400px; background: white; min-height: 100vh; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        
+        /* 1. Authenticity Header */
+        .auth-header { background: var(--success); color: white; padding: 30px 20px; text-align: center; }
+        .tick-icon { font-size: 50px; margin-bottom: 10px; }
+        
+        /* 2. AI Accuracy Section */
+        .ai-panel { background: #e8f4fd; border-radius: 10px; margin: 15px; padding: 15px; border-left: 5px solid var(--blue); }
+        .progress-bar { background: #ccc; border-radius: 10px; height: 10px; margin-top: 10px; overflow: hidden; }
+        .progress-fill { background: var(--blue); height: 100%; transition: 1s ease-in-out; }
+
+        /* 3. Details Section */
+        .section { padding: 15px 20px; border-bottom: 1px solid #eee; }
+        .section-title { font-weight: bold; color: #555; font-size: 14px; margin-bottom: 10px; display: block; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 15px; }
+        
+        /* 4. Journey Timeline */
+        .timeline { position: relative; padding-left: 30px; }
+        .timeline-item { position: relative; margin-bottom: 20px; }
+        .timeline-item::before { content: '✅'; position: absolute; left: -30px; }
+        .timeline-item::after { content: ''; position: absolute; left: -19px; top: 20px; width: 2px; height: 20px; background: var(--success); }
+
+        /* Security Alert */
+        .alert-box { background: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; margin: 15px; border: 1px solid #ffeeba; }
+    </style>
+</head>
+<body>
+
+<div class="verification-card">
+    <div class="auth-header" id="authHeader">
+        <div class="tick-icon">✔</div>
+        <h2 id="authStatus">Verified Genuine</h2>
+    </div>
+
+    <div class="ai-panel">
+        <span class="section-title">🤖 AI Lab Analysis Accuracy</span>
+        <div class="data-row">
+            <span id="aiLabel">Processing...</span>
+            <b id="aiScore">0%</b>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="progressBar" style="width: 0%;"></div></div>
+    </div>
+
+    <div class="section">
+        <span class="section-title">Medicine Details</span>
+        <div class="data-row"><span>Name:</span> <b id="medName">-</b></div>
+        <div class="data-row"><span>Batch:</span> <b id="batchNo">-</b></div>
+        <div class="data-row"><span>Expiry:</span> <b id="expiryDate">-</b></div>
+    </div>
+
+    <div class="section">
+        <span class="section-title">Production Journey</span>
+        <div class="timeline">
+            <div class="timeline-item">Raw Material Checked (Lab OK)</div>
+            <div class="timeline-item">Production Site A Completed</div>
+            <div class="timeline-item">Blockchain Record Signed</div>
+        </div>
+    </div>
+
+    <div id="securitySection">
+        <div class="section">
+            <div class="data-row"><span>Scan Count:</span> <b id="scanCount">0</b></div>
+        </div>
+        <div id="securityAlert"></div>
+    </div>
+</div>
+
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const sn = urlParams.get('sn');
+
+    fetch(`http://localhost:8080/api/manufacturer/verify/${sn}`)
+        .then(res => res.json())
+        .then(data => {
+            // डेटा भरना
+            document.getElementById('medName').innerText = data.batch.medicineName;
+            document.getElementById('batchNo').innerText = data.batch.batchNumber;
+            document.getElementById('expiryDate').innerText = "March 2028"; // डमी डेटा
+            document.getElementById('scanCount').innerText = data.scanCount;
+
+            // AI Sentiment Analysis Logic (Simulated)
+            const randomScore = Math.floor(Math.random() * (100 - 92 + 1)) + 92; // 92-100% के बीच
+            setTimeout(() => {
+                document.getElementById('aiScore').innerText = randomScore + "%";
+                document.getElementById('progressBar').style.width = randomScore + "%";
+                document.getElementById('aiLabel').innerText = "Quality Integrity Confirmed";
+            }, 500);
+
+            // Security Alert Logic
+            if(data.scanCount > 5) {
+                document.getElementById('securityAlert').innerHTML = `
+                    <div class="alert-box">
+                        ⚠️ <b>Warning:</b> This code has been scanned ${data.scanCount} times. 
+                        Possible duplicate detected!
+                    </div>`;
+                document.getElementById('authHeader').style.background = '#f39c12';
+                document.getElementById('authStatus').innerText = "Suspicious Product";
+            }
+            
+            // Kill Switch Check (अगर बैच ब्लॉक है)
+            if(data.batch.status === "RECALLED" || data.batch.status === "BLOCKED") {
+                document.getElementById('authHeader').style.background = '#e74c3c';
+                document.getElementById('authStatus').innerText = "RECALLED / DO NOT USE";
+                document.getElementById('aiLabel').innerText = "Regulator Kill Switch Active";
+            }
+        });
+</script>
+</body>
+</html>

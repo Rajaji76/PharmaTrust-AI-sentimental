@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package pharmatrust.qr;
+
+option java_package = "pharmatrust.manufacturing_system.proto";
+option java_outer_classname = "QRPayloadProto";
+
+/**
+ * Compact QR payload for pharmaceutical unit verification
+ * Target size: ~100 bytes (vs 300+ bytes with JSON)
+ * 
+ * Requirements: FR-010, FR-011
+ */
+message QRPayload {
+    // Serial number as bytes (16 bytes - UUID)
+    bytes serial_number = 1;
+    
+    // Batch ID hash (first 8 bytes of batch UUID for compactness)
+    bytes batch_id_hash = 2;
+    
+    // Unix timestamp (4 bytes - uint32)
+    uint32 timestamp = 3;
+    
+    // ECDSA signature (64 bytes for compact signature)
+    bytes signature = 4;
+}

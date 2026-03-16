@@ -5,9 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    host: '0.0.0.0',  // Bind to all interfaces so mobile on same WiFi can reach it
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://10.184.81.201:8080',
         changeOrigin: true
       }
     }

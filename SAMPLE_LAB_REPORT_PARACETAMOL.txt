@@ -1,0 +1,31 @@
+CERTIFICATE OF ANALYSIS - LAB REPORT
+Product Name: Paracetamol Tablets IP 500mg
+Generic Name: Acetaminophen (Paracetamol)
+Chemical Formula: C8H9NO2
+IUPAC Name: 4-Acetamidophenol
+Batch Number: [BATCH_NUMBER]
+
+COMPOSITION ANALYSIS
+Active Ingredient: Acetaminophen (Paracetamol) - C8H9NO2
+Strength: 500mg per tablet
+Assay Purity: 99.5% w/w (IP specification: 98.0% to 101.0%)
+
+PHARMACOPOEIA STANDARD
+This product complies with Indian Pharmacopoeia IP standards.
+Also meets British Pharmacopoeia BP and USP specifications.
+WHO guidelines followed.
+
+SAFETY TESTING
+Heavy metals: not detected. Methanol: not detected.
+Lead: absent. Arsenic: absent. Mercury: absent.
+Diethylene glycol: not detected. All contaminants below detection limit.
+
+DOSAGE INFORMATION
+Each tablet contains Paracetamol 500mg as active ingredient.
+Standard adult dose: 500mg to 1000mg every 4-6 hours.
+
+CONCLUSION
+This batch of Paracetamol 500mg tablets meets all quality specifications.
+Purity: 99.5% - PASS
+Assay: 99.5% - PASS
+Signed by: Quality Control Officer

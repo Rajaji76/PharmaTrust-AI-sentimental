@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PharmaTrust - Secure Supply Chain</title>
+    <title>PharmaTrust — Secure Pharmaceutical Supply Chain</title>
+    <meta name="description" content="PharmaTrust: AI-powered pharmaceutical supply chain verification with blockchain security" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      html { scroll-behavior: smooth; }
+      body { background: #050816; }
+      #root { min-height: 100vh; }
+      /* Loading screen */
+      .app-loader {
+        position: fixed; inset: 0; background: #050816;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 9999; transition: opacity 0.5s ease;
+      }
+      .loader-ring {
+        width: 48px; height: 48px; border-radius: 50%;
+        border: 2px solid rgba(0,217,255,0.1);
+        border-top-color: #00D9FF;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
     <div id="root"></div>

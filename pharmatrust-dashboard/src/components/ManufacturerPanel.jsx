@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { manufacturerAPI } from '../services/api'
+import { batchAPI } from '../services/api'
 
 export default function ManufacturerPanel({ onBatchCreated }) {
   const [formData, setFormData] = useState({
@@ -19,7 +19,7 @@ export default function ManufacturerPanel({ onBatchCreated }) {
     setResult(null)
     
     try {
-      const response = await manufacturerAPI.createBatch({
+      const response = await batchAPI.createBatch({
         batchNumber: formData.batchNumber,
         medicineName: formData.medicineName,
         quantity: parseInt(formData.quantity),
@@ -30,7 +30,8 @@ export default function ManufacturerPanel({ onBatchCreated }) {
       setResult({ 
         success: true, 
         data: response,
-        message: `Batch ${formData.batchNumber} created successfully with ${formData.quantity} units!`
+        message: `Batch created with ${response.units?.length || formData.quantity} units!`,
+        units: response.units || []
       })
       
       // Trigger supply chain animation
@@ -161,13 +162,30 @@ export default function ManufacturerPanel({ onBatchCreated }) {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`mt-6 p-4 rounded-lg ${
+            className={`mt-6 p-6 rounded-lg ${
               result.success ? 'bg-neon-green/20 border border-neon-green' : 'bg-red-500/20 border border-red-500'
             }`}
           >
-            <p className={`font-semibold ${result.success ? 'text-neon-green' : 'text-red-500'}`}>
+            <p className={`font-semibold text-lg mb-4 ${result.success ? 'text-neon-green' : 'text-red-500'}`}>
               {result.success ? '✓ ' + result.message : '✗ Error: ' + result.error}
             </p>
+            
+            {result.success && result.units && result.units.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-white font-semibold mb-2">Unit Serial Numbers (First 10):</p>
+                <div className="bg-dark-bg/50 p-4 rounded-lg max-h-48 overflow-y-auto">
+                  {result.units.slice(0, 10).map((unit, idx) => (
+                    <div key={idx} className="flex items-center gap-2 py-1 border-b border-electric-blue/10">
+                      <span className="text-electric-blue font-mono text-sm">{unit.serialNumber}</span>
+                      <span className="text-gray-400 text-xs">({unit.status})</span>
+                    </div>
+                  ))}
+                  {result.units.length > 10 && (
+                    <p className="text-gray-400 text-xs mt-2">... and {result.units.length - 10} more units</p>
+                  )}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </motion.div>

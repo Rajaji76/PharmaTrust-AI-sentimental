@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: pharmatrust-postgres
+    environment:
+      POSTGRES_DB: pharmatrust_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5593
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmatrust-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: pharmatrust-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmatrust-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: pharmatrust-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmatrust-network
+
+  # Optional: LocalStack for AWS S3 local testing
+  localstack:
+    image: localstack/localstack:latest
+    container_name: pharmatrust-localstack
+    ports:
+      - "4566:4566"  # LocalStack gateway
+    environment:
+      - SERVICES=s3,secretsmanager
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+    volumes:
+      - localstack_data:/tmp/localstack
+    networks:
+      - pharmatrust-network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  localstack_data:
+
+networks:
+  pharmatrust-network:
+    driver: bridge

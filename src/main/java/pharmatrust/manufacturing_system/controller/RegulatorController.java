@@ -1,4 +1,4 @@
-package pharmatrust.manufacturing_system.controller;
+ package pharmatrust.manufacturing_system.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,13 +7,16 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import pharmatrust.manufacturing_system.entity.*;
+import pharmatrust.manufacturing_system.entity.UnitItem;
 import pharmatrust.manufacturing_system.repository.*;
+import pharmatrust.manufacturing_system.service.BlockchainService;
 import pharmatrust.manufacturing_system.service.HierarchyKillSwitchService;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -24,7 +27,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/api/v1/regulator")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 @Slf4j
 @PreAuthorize("hasAuthority('REGULATOR')")
@@ -37,6 +40,8 @@ public class RegulatorController {
     private final HierarchyKillSwitchService hierarchyKillSwitchService;
     private final UnitItemRepository unitItemRepository;
     private final ScanLogRepository scanLogRepository;
+    private final UserRepository userRepository;
+    private final BlockchainService blockchainService;
 
     /**
      * GET /api/v1/regulator/alerts - View fraud alerts only
@@ -48,14 +53,36 @@ public class RegulatorController {
         return ResponseEntity.ok(Map.of(
                 "totalAlerts", alerts.size(),
                 "unacknowledged", alerts.stream().filter(a -> !a.getAcknowledged()).count(),
-                "alerts", alerts.stream().map(a -> Map.of(
-                        "id", a.getId(),
-                        "type", a.getAlertType().name(),
-                        "severity", a.getSeverity().name(),
-                        "message", a.getMessage(),
-                        "createdAt", a.getCreatedAt().toString(),
-                        "acknowledged", a.getAcknowledged()
-                )).toList()
+                "alerts", alerts.stream().map(a -> {
+                    java.util.Map<String, Object> alertMap = new java.util.LinkedHashMap<>();
+                    alertMap.put("id", a.getId());
+                    alertMap.put("type", a.getAlertType().name());
+                    alertMap.put("alertType", a.getAlertType().name());
+                    alertMap.put("severity", a.getSeverity().name());
+                    alertMap.put("message", a.getMessage());
+                    alertMap.put("createdAt", a.getCreatedAt().toString());
+                    alertMap.put("acknowledged", a.getAcknowledged());
+                    // Enrich with unit/batch details if entityId is present
+                    if (a.getEntityId() != null) {
+                        try {
+                            var unitOpt = unitItemRepository.findById(a.getEntityId());
+                            if (unitOpt.isPresent()) {
+                                var unit = unitOpt.get();
+                                alertMap.put("serialNumber", unit.getSerialNumber());
+                                if (unit.getBatch() != null) {
+                                    alertMap.put("batchNumber", unit.getBatch().getBatchNumber());
+                                    alertMap.put("medicineName", unit.getBatch().getMedicineName());
+                                    alertMap.put("expiryDate", unit.getBatch().getExpiryDate() != null ? unit.getBatch().getExpiryDate().toString() : null);
+                                }
+                                alertMap.put("unitType", unit.getUnitType() != null ? unit.getUnitType().name() : null);
+                                alertMap.put("unitStatus", unit.getStatus() != null ? unit.getStatus().name() : null);
+                            }
+                        } catch (Exception ex) {
+                            log.warn("Could not enrich alert {} with unit details: {}", a.getId(), ex.getMessage());
+                        }
+                    }
+                    return alertMap;
+                }).toList()
         ));
     }
 
@@ -94,6 +121,27 @@ public class RegulatorController {
 
         try {
             int blockedCount = hierarchyKillSwitchService.killParentAndChildren(serialNumber, reason);
+
+            // Emit recall event on blockchain asynchronously (FR-020)
+            // Look up the batch number from the unit's serial number
+            final String initiator = authentication.getName();
+            final String recallReason = reason;
+            final String serial = serialNumber;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    var unitOpt = unitItemRepository.findBySerialNumber(serial);
+                    if (unitOpt.isPresent() && unitOpt.get().getBatch() != null) {
+                        String batchNumber = unitOpt.get().getBatch().getBatchNumber();
+                        String txHash = blockchainService.emitRecallEvent(
+                                batchNumber, initiator, recallReason, false);
+                        log.info("Kill-switch recall event emitted on blockchain — batch: {}, txHash: {}",
+                                batchNumber, txHash);
+                    }
+                } catch (Exception ex) {
+                    log.error("Failed to emit kill-switch recall event on blockchain for serial: {}", serial, ex);
+                }
+            });
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "blockedUnits", blockedCount,
@@ -277,4 +325,156 @@ public class RegulatorController {
         result.put("units", unitLocations);
         return ResponseEntity.ok(result);
     }
+
+    /**
+     * GET /api/v1/regulator/registered-partners
+     * Returns all registered manufacturers, distributors and retailers with full identity details.
+     */
+    @GetMapping("/registered-partners")
+    public ResponseEntity<?> getRegisteredPartners() {
+        List<User> manufacturers = userRepository.findByRole(User.Role.MANUFACTURER);
+        List<User> distributors = userRepository.findByRole(User.Role.DISTRIBUTOR);
+        List<User> retailers = userRepository.findByRole(User.Role.RETAILER);
+        List<User> pharmacists = userRepository.findByRole(User.Role.PHARMACIST);
+
+        java.util.function.Function<User, Map<String, Object>> toMap = u -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", u.getId().toString());
+            m.put("email", u.getEmail());
+            m.put("fullName", u.getFullName() != null ? u.getFullName() : "");
+            m.put("role", u.getRole().name());
+            m.put("shopName", u.getShopName() != null ? u.getShopName() : "");
+            m.put("shopAddress", u.getShopAddress() != null ? u.getShopAddress() : "");
+            m.put("licenseNumber", u.getLicenseNumber() != null ? u.getLicenseNumber() : "");
+            m.put("phoneNumber", u.getPhoneNumber() != null ? u.getPhoneNumber() : "");
+            m.put("gstNumber", u.getGstNumber() != null ? u.getGstNumber() : "");
+            m.put("cityState", u.getCityState() != null ? u.getCityState() : "");
+            m.put("organization", u.getOrganization() != null ? u.getOrganization() : "");
+            m.put("isActive", u.getIsActive());
+            m.put("isVerified", u.getIsVerified());
+            m.put("verifiedAt", u.getVerifiedAt() != null ? u.getVerifiedAt().toString() : null);
+            m.put("verifiedBy", u.getVerifiedBy() != null ? u.getVerifiedBy() : null);
+            m.put("joinedAt", u.getCreatedAt() != null ? u.getCreatedAt().toString() : "");
+            return m;
+        };
+
+        List<Map<String, Object>> allRetailers = new java.util.ArrayList<>();
+        retailers.forEach(u -> allRetailers.add(toMap.apply(u)));
+        pharmacists.forEach(u -> allRetailers.add(toMap.apply(u)));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("manufacturers", manufacturers.stream().map(toMap).toList());
+        result.put("distributors", distributors.stream().map(toMap).toList());
+        result.put("retailers", allRetailers);
+        result.put("totalManufacturers", manufacturers.size());
+        result.put("totalDistributors", distributors.size());
+        result.put("totalRetailers", allRetailers.size());
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * GET /api/v1/regulator/batches - All batches (safety-relevant fields only)
+     */
+    @GetMapping("/batches")
+    public ResponseEntity<?> getAllBatches() {
+        List<Batch> all = batchRepository.findAll();
+        List<Map<String, Object>> result = all.stream().map(b -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", b.getId().toString());
+            m.put("batchNumber", b.getBatchNumber());
+            m.put("medicineName", b.getMedicineName());
+            m.put("status", b.getStatus().name());
+            m.put("expiryDate", b.getExpiryDate().toString());
+            m.put("manufacturingDate", b.getManufacturingDate().toString());
+            m.put("createdAt", b.getCreatedAt() != null ? b.getCreatedAt().toString() : "");
+            return m;
+        }).toList();
+        return ResponseEntity.ok(result);
+    }
+
+  /**
+     * GET /api/v1/regulator/stats
+     * Returns supply chain stats for the regulator overview.
+     */
+    @GetMapping("/stats")
+    public ResponseEntity<?> getStats() {
+        long total = unitItemRepository.count();
+        long active = unitItemRepository.countByStatus(UnitItem.UnitStatus.ACTIVE);
+        long recalled = unitItemRepository.countByStatus(UnitItem.UnitStatus.RECALLED);
+        long flagged = unitItemRepository.countFlaggedUnits();
+        long suspicious = alertRepository.countByAcknowledgedFalse();
+
+        // Units by owner role
+        Map<String, Long> unitsByOwner = new LinkedHashMap<>();
+        unitsByOwner.put("MANUFACTURER", unitItemRepository.countByCurrentOwnerIsNull());
+        unitsByOwner.put("DISTRIBUTOR", unitItemRepository.countByCurrentOwnerRole(User.Role.DISTRIBUTOR));
+        unitsByOwner.put("RETAILER", unitItemRepository.countByCurrentOwnerRole(User.Role.RETAILER));
+        unitsByOwner.put("PHARMACIST", unitItemRepository.countByCurrentOwnerRole(User.Role.PHARMACIST));
+        unitsByOwner.put("PATIENT", unitItemRepository.countByCurrentOwnerRole(User.Role.PATIENT));
+        // Remove zero entries
+        unitsByOwner.entrySet().removeIf(e -> e.getValue() == 0);
+
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("totalUnits", total);
+        stats.put("activeUnits", active);
+        stats.put("recalledUnits", recalled);
+        stats.put("flaggedUnits", flagged);
+        stats.put("suspiciousScans", suspicious);
+        stats.put("unitsByOwner", unitsByOwner);
+        return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * POST /api/v1/regulator/verify-partner/{userId}
+     * Regulator manually verifies a distributor/retailer identity.
+     */
+    @PostMapping("/verify-partner/{userId}")
+    public ResponseEntity<?> verifyPartner(@PathVariable UUID userId, Authentication authentication) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return ResponseEntity.notFound().build();
+
+        if (user.getRole() != User.Role.DISTRIBUTOR && user.getRole() != User.Role.RETAILER
+                && user.getRole() != User.Role.PHARMACIST && user.getRole() != User.Role.MANUFACTURER) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Only MANUFACTURER/DISTRIBUTOR/RETAILER/PHARMACIST can be verified"));
+        }
+
+        user.setIsVerified(true);
+        user.setVerifiedAt(java.time.LocalDateTime.now());
+        user.setVerifiedBy(authentication.getName());
+        userRepository.save(user);
+
+        log.info("Regulator {} verified partner: {} ({})", authentication.getName(), user.getEmail(), user.getRole());
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "userId", userId,
+                "email", user.getEmail(),
+                "verifiedBy", authentication.getName(),
+                "verifiedAt", user.getVerifiedAt().toString(),
+                "message", user.getFullName() + " is now verified by PharmaTrust"
+        ));
+    }
+
+    /**
+     * POST /api/v1/regulator/unverify-partner/{userId}
+     * Regulator revokes verification of a distributor/retailer.
+     */
+    @PostMapping("/unverify-partner/{userId}")
+    public ResponseEntity<?> unverifyPartner(@PathVariable UUID userId, Authentication authentication) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return ResponseEntity.notFound().build();
+
+        user.setIsVerified(false);
+        user.setVerifiedAt(null);
+        user.setVerifiedBy(null);
+        userRepository.save(user);
+
+        log.info("Regulator {} revoked verification for: {}", authentication.getName(), user.getEmail());
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "userId", userId,
+                "email", user.getEmail(),
+                "message", "Verification revoked for " + user.getFullName()
+        ));
+    }
 }
+

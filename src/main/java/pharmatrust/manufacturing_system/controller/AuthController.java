@@ -9,15 +9,20 @@ import org.springframework.web.bind.annotation.*;
 import pharmatrust.manufacturing_system.dto.AuthResponse;
 import pharmatrust.manufacturing_system.dto.LoginRequest;
 import pharmatrust.manufacturing_system.dto.RegisterRequest;
+import pharmatrust.manufacturing_system.entity.User;
+import pharmatrust.manufacturing_system.repository.UserRepository;
 import pharmatrust.manufacturing_system.service.AuthenticationService;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 public class AuthController {
     
     @Autowired
     private AuthenticationService authenticationService;
+    
+    @Autowired
+    private UserRepository userRepository;
     
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -53,4 +58,25 @@ public class AuthController {
         }
         return ResponseEntity.status(401).body("Unauthorized");
     }
+
+    /**
+     * GET /api/v1/auth/my-verification-status
+     * Returns verification status for the currently logged-in distributor/retailer.
+     */
+    @GetMapping("/my-verification-status")
+    public ResponseEntity<?> getMyVerificationStatus(Authentication authentication) {
+        if (authentication == null) return ResponseEntity.status(401).build();
+        User user = userRepository.findByEmail(authentication.getName()).orElse(null);
+        if (user == null) return ResponseEntity.status(404).build();
+
+        java.util.Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("isVerified", user.getIsVerified());
+        resp.put("verifiedAt", user.getVerifiedAt() != null ? user.getVerifiedAt().toString() : null);
+        resp.put("verifiedBy", user.getVerifiedBy() != null ? user.getVerifiedBy() : null);
+        resp.put("role", user.getRole().name());
+        resp.put("fullName", user.getFullName() != null ? user.getFullName() : "");
+        resp.put("shopName", user.getShopName() != null ? user.getShopName() : "");
+        return ResponseEntity.ok(resp);
+    }
 }
+

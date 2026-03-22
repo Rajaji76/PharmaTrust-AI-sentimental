@@ -22,7 +22,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/v1/verify")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 @Slf4j
 public class VerifyController {
@@ -37,6 +37,38 @@ public class VerifyController {
         log.info("Online scan request: serial={}", request.getSerialNumber());
         ScanResponse response = scanService.scanUnit(request);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * POST /api/v1/verify/offline - Offline TOTP verification (alias used by frontend)
+     */
+    @PostMapping("/offline")
+    public ResponseEntity<Map<String, Object>> verifyOfflineAlias(@RequestBody Map<String, String> request) {
+        String serialNumber = request.get("serialNumber");
+        String totpCode = request.get("totpCode");
+        log.info("Offline TOTP verification: serial={}", serialNumber);
+        // For MVP: treat as online scan since TOTP infra is mocked
+        try {
+            ScanRequest scanRequest = new ScanRequest();
+            scanRequest.setSerialNumber(serialNumber);
+            ScanResponse scanResponse = scanService.scanUnit(scanRequest);
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("isValid", Boolean.TRUE.equals(scanResponse.getIsValid()));
+            resp.put("isRecalled", Boolean.TRUE.equals(scanResponse.getIsRecalled()));
+            resp.put("isBlocked", Boolean.TRUE.equals(scanResponse.getIsBlocked()));
+            resp.put("isCounterfeit", Boolean.TRUE.equals(scanResponse.getIsCounterfeit()));
+            resp.put("medicineName", scanResponse.getMedicineName());
+            resp.put("batchNumber", scanResponse.getBatchNumber());
+            resp.put("expiryDate", scanResponse.getExpiryDate());
+            resp.put("message", scanResponse.getMessage());
+            resp.put("offlineMode", true);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("isValid", false);
+            err.put("message", "Offline verification failed: " + e.getMessage());
+            return ResponseEntity.ok(err);
+        }
     }
 
     @PostMapping("/scan/offline")
@@ -60,6 +92,29 @@ public class VerifyController {
             err.put("message", "Offline verification failed: " + e.getMessage());
             return ResponseEntity.ok(err);
         }
+    }
+
+    /**
+     * GET /api/v1/verify/{serial} - Frontend alias for unit details (used by Distributor/Retailer inspect)
+     */
+    @GetMapping("/{serial}")
+    public ResponseEntity<?> getUnitDetailsBySerial(@PathVariable String serial) {
+        return unitItemRepository.findBySerialNumber(serial)
+                .map(unit -> {
+                    Map<String, Object> resp = new LinkedHashMap<>();
+                    resp.put("serialNumber", unit.getSerialNumber());
+                    resp.put("status", unit.getStatus().name());
+                    resp.put("isActive", unit.getIsActive());
+                    resp.put("scanCount", unit.getScanCount());
+                    resp.put("maxScanLimit", unit.getMaxScanLimit());
+                    resp.put("unitType", unit.getUnitType() != null ? unit.getUnitType().name() : "TABLET");
+                    resp.put("batchNumber", unit.getBatch().getBatchNumber());
+                    resp.put("medicineName", unit.getBatch().getMedicineName());
+                    resp.put("expiryDate", unit.getBatch().getExpiryDate().toString());
+                    resp.put("manufacturingDate", unit.getBatch().getManufacturingDate().toString());
+                    return ResponseEntity.ok(resp);
+                })
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/unit/{serial}")
@@ -122,7 +177,11 @@ public class VerifyController {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping("/history/{serial}")
+    /**
+     * GET /api/v1/verify/{serial}/history - Frontend alias (verifyAPI.getUnitHistory)
+     * GET /api/v1/verify/history/{serial} - Original path
+     */
+    @GetMapping({"/history/{serial}", "/{serial}/history"})
     public ResponseEntity<?> getScanHistory(@PathVariable String serial) {
         UnitItem unit = unitItemRepository.findBySerialNumber(serial).orElse(null);
         if (unit == null) return ResponseEntity.notFound().build();

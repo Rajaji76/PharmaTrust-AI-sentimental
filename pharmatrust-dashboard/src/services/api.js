@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://10.184.81.201:8080/api/v1'
+// Use relative URL so all requests go through Vite's proxy (/api → backend)
+// This avoids CSP connect-src issues and works on any network (mobile, desktop, etc.)
+const API_BASE_URL = '/api/v1'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -19,6 +21,7 @@ export const authAPI = {
   login: (data) => api.post('/auth/login', data).then(r => r.data),
   logout: () => api.post('/auth/logout').then(r => r.data),
   getCurrentUser: () => api.get('/auth/me').then(r => r.data),
+  getMyVerificationStatus: () => api.get('/auth/my-verification-status').then(r => r.data).catch(() => ({ isVerified: false })),
 }
 
 // Batch APIs
@@ -30,8 +33,9 @@ export const batchAPI = {
     }).then(r => r.data),
   getMyBatches: () => api.get('/batches/my-batches').then(r => r.data),
   getBatchDetails: (batchId) => api.get(`/batches/${batchId}`).then(r => r.data),
-  approveBatch: (batchId, signature) =>
-    api.post(`/batches/${batchId}/approve`, { signature }).then(r => r.data),
+  getLabReport: (batchNumber) => api.get(`/batches/lab-report/${batchNumber}`).then(r => r.data),
+  approveBatch: (batchId, digitalSignature, approvalType = 'PRODUCTION_HEAD') =>
+    api.post(`/batches/${batchId}/approve`, { approvalType, digitalSignature }).then(r => r.data),
   recallBatch: (batchId, reason) =>
     api.post(`/batches/${batchId}/recall`, { reason }).then(r => r.data),
   quarantineBatch: (batchId, reason) =>
@@ -45,7 +49,7 @@ export const scanAPI = {
     api.post('/scan', { serialNumber }).then(r => r.data),
   verifyOffline: (serialNumber, totpCode) =>
     api.post('/verify/offline', { serialNumber, totpCode }).then(r => r.data),
-  getScanHistory: () => api.get('/scan/history').then(r => r.data),
+  getScanHistory: () => api.get('/scan/history').then(r => r.data).catch(() => []),
 }
 
 // Verify APIs
@@ -94,8 +98,11 @@ export const regulatorAPI = {
   getAlerts: () => api.get('/regulator/alerts').then(r => r.data),
   getRecallEvents: () => api.get('/regulator/recalls').then(r => r.data),
   getAuditLogs: () => api.get('/regulator/audit-logs').then(r => r.data),
-  getAllBatches: () => api.get('/regulator/batches').then(r => r.data),
+  getAllBatches: () => api.get('/regulator/batches').then(r => r.data).catch(() => []),
   getBatchLocation: (batchNumber) => api.get(`/regulator/batch-location/${batchNumber}`).then(r => r.data),
+  getRegisteredPartners: () => api.get('/regulator/registered-partners').then(r => r.data).catch(() => ({ distributors: [], retailers: [], totalDistributors: 0, totalRetailers: 0 })),
+  verifyPartner: (userId) => api.post(`/regulator/verify-partner/${userId}`).then(r => r.data),
+  unverifyPartner: (userId) => api.post(`/regulator/unverify-partner/${userId}`).then(r => r.data),
 }
 
 // Supply Chain APIs
@@ -122,6 +129,16 @@ export const complaintAPI = {
   raiseComplaint: (data) => api.post('/complaints/raise', data).then(r => r.data),
   getMyComplaints: () => api.get('/complaints/my').then(r => r.data).catch(() => []),
   getAllComplaints: () => api.get('/complaints/all').then(r => r.data).catch(() => []),
+  getComplaintById: (id) => api.get(`/complaints/${id}`).then(r => r.data).catch(() => null),
+}
+
+// Government Scheme Dispense APIs
+export const govtSchemeAPI = {
+  lookupPatient: (data) => api.post('/govt-scheme/lookup-patient', data).then(r => r.data),
+  checkSafety: (abhaId, medicineName) =>
+    api.post('/govt-scheme/check-safety', { abhaId, medicineName }).then(r => r.data),
+  recordDispense: (data) => api.post('/govt-scheme/dispense', data).then(r => r.data),
+  getMyDispenseHistory: () => api.get('/govt-scheme/my-dispense-history').then(r => r.data).catch(() => []),
 }
 
 export default api

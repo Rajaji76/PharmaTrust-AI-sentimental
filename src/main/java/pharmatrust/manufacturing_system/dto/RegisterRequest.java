@@ -33,6 +33,10 @@ public class RegisterRequest {
     private String phoneNumber;
     private String gstNumber;
     private String cityState;
+
+    // Patient identity — Government ID
+    private String govtIdType;
+    private String govtIdNumber;
     
     public RegisterRequest() {}
     
@@ -93,4 +97,10 @@ public class RegisterRequest {
 
     public String getCityState() { return cityState; }
     public void setCityState(String cityState) { this.cityState = cityState; }
+
+    public String getGovtIdType() { return govtIdType; }
+    public void setGovtIdType(String govtIdType) { this.govtIdType = govtIdType; }
+
+    public String getGovtIdNumber() { return govtIdNumber; }
+    public void setGovtIdNumber(String govtIdNumber) { this.govtIdNumber = govtIdNumber; }
 }

@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * AI Sentinel Service for fraud detection and anomaly analysis
@@ -27,6 +28,7 @@ public class AISentinelService {
     private final UnitItemRepository unitItemRepository;
     private final AlertRepository alertRepository;
     private final RecallEventRepository recallEventRepository;
+    private final BlockchainService blockchainService;
 
     @Value("${ai.max-travel-speed-kmh:200}")
     private double maxTravelSpeedKmh;
@@ -299,6 +301,19 @@ public class AISentinelService {
         recallEvent.setReason(reason);
         recallEvent.setStatus(RecallEvent.RecallStatus.ACTIVE);
         recallEventRepository.save(recallEvent);
+
+        // Emit recall event on blockchain asynchronously (FR-020)
+        final String batchNumber = unit.getBatch().getBatchNumber();
+        final String recallReason = reason;
+        CompletableFuture.runAsync(() -> {
+            try {
+                String txHash = blockchainService.emitRecallEvent(
+                        batchNumber, "AI_SENTINEL", recallReason, true);
+                log.info("Auto-recall event emitted on blockchain — batch: {}, txHash: {}", batchNumber, txHash);
+            } catch (Exception ex) {
+                log.error("Failed to emit auto-recall event on blockchain for batch: {}", batchNumber, ex);
+            }
+        });
 
         // Generate critical alert
         generateAlert(

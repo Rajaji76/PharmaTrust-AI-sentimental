@@ -29,7 +29,7 @@ const tabs = [
   {
     id: 'patient',
     label: 'Patient',
-    sublabel: 'Verify Medicine',
+    sublabel: 'Scan & Report',
     icon: '👤',
     color: '#FF6B35',
     gradient: 'from-orange-500/20 to-red-500/10',

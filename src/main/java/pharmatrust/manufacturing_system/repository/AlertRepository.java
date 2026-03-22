@@ -54,4 +54,9 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
      * Count unacknowledged alerts by severity
      */
     long countByAcknowledgedFalseAndSeverity(Alert.Severity severity);
+
+    /**
+     * Count all unacknowledged alerts
+     */
+    long countByAcknowledgedFalse();
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { transferAPI, verifyAPI, complaintAPI } from '../services/api'
+import { transferAPI, verifyAPI, complaintAPI, authAPI } from '../services/api'
 import AuthModal from './AuthModal'
 import QRScanner from './QRScanner'
 
@@ -8,6 +8,7 @@ export default function DistributorPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [activeTab, setActiveTab] = useState('receive')
+  const [verificationStatus, setVerificationStatus] = useState(null)
 
   const [myStock, setMyStock] = useState(null)
   const [myTransfers, setMyTransfers] = useState([])
@@ -19,6 +20,7 @@ export default function DistributorPanel() {
   const [receiveLoading, setReceiveLoading] = useState(false)
   const [receiveResult, setReceiveResult] = useState(null)
   const [receiveError, setReceiveError] = useState('')
+  const [receiveInputMode, setReceiveInputMode] = useState('manual')
 
   // Forward transfer
   const [fwdSerial, setFwdSerial] = useState('')
@@ -26,6 +28,7 @@ export default function DistributorPanel() {
   const [fwdNotes, setFwdNotes] = useState('')
   const [fwdLoading, setFwdLoading] = useState(false)
   const [fwdResult, setFwdResult] = useState(null)
+  const [fwdInputMode, setFwdInputMode] = useState('manual')
 
   // Inspect & Report
   const [inspectSerial, setInspectSerial] = useState('')
@@ -56,20 +59,28 @@ export default function DistributorPanel() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [stockRes, transfersRes, complaintsRes] = await Promise.allSettled([
+      const [stockRes, transfersRes, complaintsRes, verifyRes] = await Promise.allSettled([
         transferAPI.getMyStock(),
         transferAPI.getMyTransfers(),
         complaintAPI.getMyComplaints(),
+        authAPI.getMyVerificationStatus(),
       ])
       if (stockRes.status === 'fulfilled') setMyStock(stockRes.value)
       if (transfersRes.status === 'fulfilled') setMyTransfers(Array.isArray(transfersRes.value) ? transfersRes.value : [])
       if (complaintsRes.status === 'fulfilled') setMyComplaints(Array.isArray(complaintsRes.value) ? complaintsRes.value : [])
+      if (verifyRes.status === 'fulfilled') setVerificationStatus(verifyRes.value)
     } finally { setLoading(false) }
   }
 
-  const handleAuthSuccess = () => { setIsAuthenticated(true); setShowAuthModal(false); loadData() }
+  const handleAuthSuccess = (response) => {
+    if (response?.role) localStorage.setItem('userRole', response.role)
+    if (response?.email) localStorage.setItem('username', response.email)
+    setShowAuthModal(false)
+    setIsAuthenticated(true)
+    loadData()
+  }
   const handleLogout = () => {
-    localStorage.removeItem('authToken'); localStorage.removeItem('userRole'); localStorage.removeItem('username')
+    localStorage.removeItem('authToken'); localStorage.removeItem('userRole'); localStorage.removeItem('username'); localStorage.removeItem('userEmail')
     setIsAuthenticated(false); setShowAuthModal(true)
   }
 
@@ -81,10 +92,18 @@ export default function DistributorPanel() {
       const data = await transferAPI.receiveStock(receiveSerial.trim(), receiveNotes)
       setReceiveResult(data)
       setReceiveSerial(''); setReceiveNotes('')
-      setTimeout(loadData, 500)
+      // Immediately refresh stock data
+      await loadData()
     } catch (err) {
       setReceiveError(err.response?.data?.error || 'Receive failed')
     } finally { setReceiveLoading(false) }
+  }
+
+  const handleReceiveAnother = () => {
+    setReceiveResult(null)
+    setReceiveSerial('')
+    setReceiveNotes('')
+    setReceiveError('')
   }
 
   const handleInspectLookup = async (e) => {
@@ -131,7 +150,7 @@ export default function DistributorPanel() {
       })
       setFwdResult({ success: true, data: result })
       setFwdSerial(''); setFwdToEmail(''); setFwdNotes('')
-      setTimeout(loadData, 500)
+      await loadData()
     } catch (err) {
       setFwdResult({ success: false, error: err.response?.data?.error || 'Transfer failed' })
     } finally { setFwdLoading(false) }
@@ -147,6 +166,22 @@ export default function DistributorPanel() {
             <h2 className="text-3xl font-bold neon-text-blue">🚚 Distributor Dashboard</h2>
             {myStock?.shopName && (
               <p className="text-gray-500 text-sm mt-1 font-mono">🏪 {myStock.shopName} · {myStock.ownerEmail}</p>
+            )}
+            {verificationStatus?.isVerified ? (
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neon-green/10 border border-neon-green/40"
+                style={{ boxShadow: '0 0 12px rgba(0,255,136,0.15)' }}>
+                <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse" />
+                <span className="text-neon-green text-sm font-semibold">✅ Verified by PharmaTrust</span>
+                {verificationStatus.verifiedAt && (
+                  <span className="text-gray-400 text-xs">· {new Date(verificationStatus.verifiedAt).toLocaleDateString()}</span>
+                )}
+              </motion.div>
+            ) : (
+              <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                <span className="text-yellow-400 text-sm">⏳ Pending Regulator Verification</span>
+              </div>
             )}
           </div>
           <div className="flex gap-3">
@@ -206,29 +241,61 @@ export default function DistributorPanel() {
             <div className="bg-dark-bg p-5 rounded-lg border border-electric-blue/30">
               <h3 className="text-lg font-semibold text-white mb-1">📥 Receive Medicine Stock</h3>
               <p className="text-gray-400 text-sm mb-4">
-                Scan the QR code of a box/carton you received from the manufacturer. This registers the stock under your shop identity.
+                Receive a box/carton from the manufacturer. Use QR scanner or enter serial number manually.
               </p>
+
+              {/* Input Mode Toggle */}
+              <div className="flex gap-1 mb-4 p-1 bg-black/30 rounded-lg border border-electric-blue/20 w-fit">
+                <button
+                  onClick={() => setReceiveInputMode('manual')}
+                  className={`px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                    receiveInputMode === 'manual'
+                      ? 'bg-electric-blue/20 text-electric-blue border border-electric-blue/40'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}>
+                  ⌨️ Manual Entry
+                </button>
+                <button
+                  onClick={() => setReceiveInputMode('scanner')}
+                  className={`px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                    receiveInputMode === 'scanner'
+                      ? 'bg-electric-blue/20 text-electric-blue border border-electric-blue/40'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}>
+                  📷 QR Scanner
+                </button>
+              </div>
+
               <form onSubmit={handleReceive} className="space-y-3">
-                <div>
-                  <label className="block text-sm text-gray-300 mb-2">Scan QR Code (optional)</label>
-                  <QRScanner
-                    onScan={sn => setReceiveSerial(sn)}
-                    color="#00D9FF"
-                    label="Upload Box QR Code Image"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-300 mb-2">Box / Carton Serial Number *</label>
-                  <input
-                    type="text"
-                    value={receiveSerial}
-                    onChange={e => setReceiveSerial(e.target.value)}
-                    className="w-full bg-dark-bg border border-electric-blue/30 rounded-lg px-4 py-3 text-white focus:border-electric-blue focus:outline-none font-mono"
-                    placeholder="BOX-PAR-20240313-..."
-                    disabled={receiveLoading}
-                    required
-                  />
-                </div>
+                {receiveInputMode === 'scanner' ? (
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Scan QR Code Image</label>
+                    <QRScanner
+                      onScan={sn => { setReceiveSerial(sn); setReceiveError('') }}
+                      color="#00D9FF"
+                      label="Upload Box QR Code Image"
+                    />
+                    {receiveSerial && (
+                      <div className="mt-2 px-3 py-2 bg-electric-blue/10 border border-electric-blue/30 rounded-lg">
+                        <p className="text-xs text-gray-400">Scanned Serial:</p>
+                        <p className="text-electric-blue font-mono text-sm">{receiveSerial}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Box / Carton Serial Number *</label>
+                    <input
+                      type="text"
+                      value={receiveSerial}
+                      onChange={e => { setReceiveSerial(e.target.value); setReceiveError('') }}
+                      className="w-full bg-dark-bg border border-electric-blue/30 rounded-lg px-4 py-3 text-white focus:border-electric-blue focus:outline-none font-mono"
+                      placeholder="BOX-PAR-20240313-..."
+                      disabled={receiveLoading}
+                      required
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Notes (optional)</label>
                   <input
@@ -241,7 +308,7 @@ export default function DistributorPanel() {
                   />
                 </div>
                 {receiveError && <p className="text-red-400 text-sm">{receiveError}</p>}
-                <button type="submit" disabled={receiveLoading}
+                <button type="submit" disabled={receiveLoading || !receiveSerial.trim()}
                   className="w-full bg-gradient-to-r from-electric-blue to-purple-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50">
                   {receiveLoading ? '⏳ Processing...' : '✅ Confirm Receipt'}
                 </button>
@@ -273,6 +340,11 @@ export default function DistributorPanel() {
                 <p className="text-gray-400 text-xs mt-3">
                   Registered under: <span className="text-white">{receiveResult.shopName || receiveResult.receivedBy}</span>
                 </p>
+                <button onClick={handleReceiveAnother}
+                  className="mt-4 w-full py-2.5 rounded-lg font-semibold text-sm transition-all"
+                  style={{ background: 'rgba(0,217,255,0.1)', border: '1px solid rgba(0,217,255,0.3)', color: '#00D9FF' }}>
+                  📥 Receive Another Product
+                </button>
               </motion.div>
             )}
           </div>
@@ -284,28 +356,49 @@ export default function DistributorPanel() {
             {!myStock || myStock.stockByBatch?.length === 0 ? (
               <div className="text-center py-12 text-gray-500">No stock yet. Receive boxes to see them here.</div>
             ) : (
-              <div className="space-y-3">
-                {myStock.stockByBatch.map((b, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
-                    className="glass-card p-4 rounded-xl border border-white/5 metric-card">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-white font-semibold">{b.medicineName}</p>
-                        <p className="text-gray-500 text-xs font-mono mt-0.5">{b.batchNumber}</p>
-                        <p className="text-gray-600 text-xs mt-0.5">Expires: {b.expiryDate}</p>
+              <>
+                {/* Group by medicine name */}
+                {(() => {
+                  const grouped = {}
+                  myStock.stockByBatch.forEach(b => {
+                    const key = b.medicineName || 'Unknown'
+                    if (!grouped[key]) grouped[key] = []
+                    grouped[key].push(b)
+                  })
+                  return Object.entries(grouped).map(([medicine, batches]) => (
+                    <div key={medicine} className="mb-6">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">💊</span>
+                        <h3 className="text-white font-bold text-base">{medicine}</h3>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-electric-blue/10 text-electric-blue border border-electric-blue/20">
+                          {batches.reduce((sum, b) => sum + (b.unitCount || 0), 0)} units total
+                        </span>
                       </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-electric-blue">{b.unitCount}</p>
-                        <p className="text-gray-600 text-xs">units</p>
-                        <span className={`text-xs px-2 py-0.5 rounded mt-1 inline-block ${
-                          b.batchStatus === 'ACTIVE' ? 'bg-neon-green/10 text-neon-green border border-neon-green/20'
-                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                        }`}>{b.batchStatus}</span>
+                      <div className="space-y-2 pl-2 border-l-2 border-electric-blue/20">
+                        {batches.map((b, i) => (
+                          <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+                            className="glass-card p-4 rounded-xl border border-white/5 metric-card">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="text-gray-400 text-xs font-mono">{b.batchNumber}</p>
+                                <p className="text-gray-500 text-xs mt-0.5">Expires: {b.expiryDate}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-2xl font-bold text-electric-blue">{b.unitCount}</p>
+                                <p className="text-gray-600 text-xs">units</p>
+                                <span className={`text-xs px-2 py-0.5 rounded mt-1 inline-block ${
+                                  b.batchStatus === 'ACTIVE' ? 'bg-neon-green/10 text-neon-green border border-neon-green/20'
+                                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                }`}>{b.batchStatus}</span>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
                       </div>
                     </div>
-                  </motion.div>
-                ))}
-              </div>
+                  ))
+                })()}
+              </>
             )}
           </div>
         )}
@@ -315,15 +408,55 @@ export default function DistributorPanel() {
           <div className="space-y-4">
             <div className="bg-dark-bg p-5 rounded-lg border border-yellow-500/30">
               <h3 className="text-lg font-semibold text-white mb-1">➡️ Forward Stock to Retailer</h3>
-              <p className="text-gray-400 text-sm mb-4">Transfer a box/unit to a retailer or pharmacy by their registered email.</p>
+              <p className="text-gray-400 text-sm mb-4">Transfer a box/unit to a retailer or pharmacy. Use QR scanner or enter serial number manually.</p>
+
+              {/* Input Mode Toggle */}
+              <div className="flex gap-1 mb-4 p-1 bg-black/30 rounded-lg border border-yellow-500/20 w-fit">
+                <button
+                  onClick={() => setFwdInputMode('manual')}
+                  className={`px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                    fwdInputMode === 'manual'
+                      ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}>
+                  ⌨️ Manual Entry
+                </button>
+                <button
+                  onClick={() => setFwdInputMode('scanner')}
+                  className={`px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                    fwdInputMode === 'scanner'
+                      ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}>
+                  📷 QR Scanner
+                </button>
+              </div>
+
               <form onSubmit={handleForwardTransfer} className="space-y-3">
-                <div>
-                  <label className="block text-sm text-gray-300 mb-2">Serial Number *</label>
-                  <input type="text" value={fwdSerial}
-                    onChange={e => setFwdSerial(e.target.value)}
-                    className="w-full bg-dark-bg border border-yellow-500/30 rounded-lg px-4 py-3 text-white focus:border-yellow-500 focus:outline-none font-mono"
-                    placeholder="BOX-PAR-..." required disabled={fwdLoading} />
-                </div>
+                {fwdInputMode === 'scanner' ? (
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Scan QR Code Image</label>
+                    <QRScanner
+                      onScan={sn => setFwdSerial(sn)}
+                      color="#EAB308"
+                      label="Upload Box/Unit QR Code Image"
+                    />
+                    {fwdSerial && (
+                      <div className="mt-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                        <p className="text-xs text-gray-400">Scanned Serial:</p>
+                        <p className="text-yellow-400 font-mono text-sm">{fwdSerial}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Serial Number *</label>
+                    <input type="text" value={fwdSerial}
+                      onChange={e => setFwdSerial(e.target.value)}
+                      className="w-full bg-dark-bg border border-yellow-500/30 rounded-lg px-4 py-3 text-white focus:border-yellow-500 focus:outline-none font-mono"
+                      placeholder="BOX-PAR-..." required disabled={fwdLoading} />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Retailer Email *</label>
                   <input type="email" value={fwdToEmail}

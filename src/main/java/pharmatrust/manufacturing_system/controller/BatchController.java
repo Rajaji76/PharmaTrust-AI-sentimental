@@ -15,16 +15,19 @@ import pharmatrust.manufacturing_system.entity.*;
 import pharmatrust.manufacturing_system.repository.*;
 import pharmatrust.manufacturing_system.service.BatchApprovalService;
 import pharmatrust.manufacturing_system.service.BatchService;
+import pharmatrust.manufacturing_system.service.BlockchainService;
 
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/v1/batches")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 @Slf4j
 public class BatchController {
     
@@ -45,7 +48,43 @@ public class BatchController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private BlockchainService blockchainService;
     
+    /**
+     * GET /api/v1/batches/lab-report/{batchNumber}
+     * Public endpoint — accessible by any role (doctor, retailer, patient, regulator, etc.)
+     * Returns lab report transparency info for a batch.
+     */
+    @GetMapping("/lab-report/{batchNumber}")
+    public ResponseEntity<?> getLabReport(@PathVariable String batchNumber) {
+        return batchRepository.findByBatchNumber(batchNumber)
+            .map(batch -> {
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("batchNumber", batch.getBatchNumber());
+                info.put("medicineName", batch.getMedicineName());
+                info.put("manufacturingDate", batch.getManufacturingDate());
+                info.put("expiryDate", batch.getExpiryDate());
+                info.put("status", batch.getStatus().name());
+                info.put("totalUnits", batch.getTotalUnits());
+                info.put("labReportHash", batch.getLabReportHash() != null ? batch.getLabReportHash() : "Not available");
+                info.put("labReportAvailable", batch.getLabReportHash() != null);
+                info.put("blockchainTxId", batch.getBlockchainTxId());
+                info.put("blockchainConfirmed", batch.getBlockchainConfirmed());
+                info.put("merkleRoot", batch.getMerkleRoot());
+                if (batch.getManufacturer() != null) {
+                    info.put("manufacturer", Map.of(
+                        "name", batch.getManufacturer().getFullName() != null ? batch.getManufacturer().getFullName() : "",
+                        "company", batch.getManufacturer().getShopName() != null ? batch.getManufacturer().getShopName() : "",
+                        "city", batch.getManufacturer().getCityState() != null ? batch.getManufacturer().getCityState() : ""
+                    ));
+                }
+                return ResponseEntity.ok(info);
+            })
+            .orElse(ResponseEntity.notFound().build());
+    }
+
     /**
      * Create a new batch with complete production workflow
      * 
@@ -137,6 +176,32 @@ public class BatchController {
     }
     
     /**
+     * GET /api/v1/batches - List all batches (filtered by role)
+     * Manufacturers see their own batches; Regulators/Admins see all batches.
+     * Supports optional ?status= filter.
+     */
+    @GetMapping
+    public ResponseEntity<List<BatchResponse>> getAllBatches(
+            @RequestParam(value = "status", required = false) String status,
+            Authentication authentication) {
+        List<Batch> batches;
+        if (status != null && !status.isBlank()) {
+            try {
+                Batch.BatchStatus batchStatus = Batch.BatchStatus.valueOf(status.toUpperCase());
+                batches = batchRepository.findByStatus(batchStatus);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().build();
+            }
+        } else {
+            batches = batchRepository.findAll();
+        }
+        List<BatchResponse> responses = batches.stream()
+                .map(BatchResponse::fromEntity)
+                .collect(java.util.stream.Collectors.toList());
+        return ResponseEntity.ok(responses);
+    }
+
+    /**
      * Get all batches for current manufacturer
      */
     @GetMapping("/my-batches")
@@ -144,6 +209,28 @@ public class BatchController {
     public ResponseEntity<List<BatchResponse>> getMyBatches(Authentication authentication) {
         List<BatchResponse> batches = batchService.getManufacturerBatches(authentication);
         return ResponseEntity.ok(batches);
+    }
+
+    /**
+     * GET /api/v1/batches/pending-approvals - Get batches pending multi-sig approval
+     */
+    @GetMapping("/pending-approvals")
+    @PreAuthorize("hasAnyAuthority('MANUFACTURER','REGULATOR')")
+    public ResponseEntity<?> getPendingApprovals(Authentication authentication) {
+        List<Batch> pending = batchRepository.findByStatus(Batch.BatchStatus.PENDING_APPROVAL);
+        List<Map<String, Object>> result = pending.stream().map(b -> {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("id", b.getId().toString());
+            m.put("batchNumber", b.getBatchNumber());
+            m.put("medicineName", b.getMedicineName());
+            m.put("totalUnits", b.getTotalUnits());
+            m.put("status", b.getStatus().name());
+            m.put("createdAt", b.getCreatedAt() != null ? b.getCreatedAt().toString() : "");
+            m.put("approvalCount", batchApprovalService.getBatchApprovals(b.getId()).size());
+            m.put("requiredApprovals", 2);
+            return m;
+        }).toList();
+        return ResponseEntity.ok(result);
     }
     
     /**
@@ -226,6 +313,20 @@ public class BatchController {
                     .status(RecallEvent.RecallStatus.ACTIVE)
                     .build();
             recallEventRepository.save(recallEvent);
+
+            // Emit recall event on blockchain asynchronously (FR-020)
+            final String batchNumber = batch.getBatchNumber();
+            final String initiatorEmail = authentication.getName();
+            final String recallReason = reason;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    String txHash = blockchainService.emitRecallEvent(
+                            batchNumber, initiatorEmail, recallReason, false);
+                    log.info("Recall event emitted on blockchain — batch: {}, txHash: {}", batchNumber, txHash);
+                } catch (Exception ex) {
+                    log.error("Failed to emit recall event on blockchain for batch: {}", batchNumber, ex);
+                }
+            });
 
             log.info("Batch recalled: {}, units affected: {}", batch.getBatchNumber(), units.size());
             return ResponseEntity.ok(Map.of(

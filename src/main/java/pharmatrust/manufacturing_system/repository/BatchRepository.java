@@ -98,6 +98,15 @@ public interface BatchRepository extends JpaRepository<Batch, UUID> {
     List<Batch> findPendingApprovalBatches();
 
     /**
+     * Find batches that have a blockchain transaction ID but are not yet confirmed.
+     * Used by {@link pharmatrust.manufacturing_system.service.BlockchainTransactionMonitor}
+     * to poll pending on-chain transactions.
+     * Requirements: IR-004
+     */
+    @Query("SELECT b FROM Batch b WHERE b.blockchainTxId IS NOT NULL AND b.blockchainConfirmed = false")
+    List<Batch> findBatchesWithPendingBlockchainTx();
+
+    /**
      * Count batches by manufacturer and status
      */
     long countByManufacturerIdAndStatus(UUID manufacturerId, Batch.BatchStatus status);

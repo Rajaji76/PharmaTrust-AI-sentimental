@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import IntroScreen from './components/IntroScreen'
 import LandingScreen from './components/LandingScreen'
 import AuthModal from './components/AuthModal'
 import DashboardVisual from './components/DashboardVisual'
@@ -145,8 +146,8 @@ const panelVariants = {
 }
 
 function App() {
-  // 'landing' | 'auth' | 'dashboard'
-  const [screen, setScreen] = useState('landing')
+  // 'intro' | 'landing' | 'auth' | 'dashboard'
+  const [screen, setScreen] = useState('intro')
   const [selectedRole, setSelectedRole] = useState(null)   // e.g. 'manufacturer'
   const [autoScanSerial, setAutoScanSerial] = useState(null)
 
@@ -158,7 +159,7 @@ function App() {
       localStorage.clear()
     }
 
-    // QR scan deep link — skip landing, go straight to patient verify
+    // QR scan deep link — skip intro+landing, go straight to patient verify
     const params = new URLSearchParams(window.location.search)
     const sn = params.get('sn')
     if (sn) {
@@ -167,18 +168,27 @@ function App() {
       setScreen('dashboard')
       window.history.replaceState({}, '', window.location.pathname)
     }
-    // Otherwise always show landing — even if token exists
-    // User must click their role again, then auth screen will auto-login if token valid
+    // Otherwise show intro screen first
   }, [])
 
   const handleRoleSelect = (roleId) => {
     setSelectedRole(roleId)
-    // If already have a valid token for this role, skip auth screen
+    // Patient always goes to dashboard directly (guest mode handles auth internally)
+    if (roleId === 'patient') {
+      setScreen('dashboard')
+      return
+    }
+    // If already have a valid token for THIS exact role, skip auth screen
     const token = localStorage.getItem('authToken')
     const savedRole = localStorage.getItem('userRole')
     if (token && token.split('.').length === 3 && savedRole === ROLE_MAP[roleId]) {
       setScreen('dashboard')
     } else {
+      // Clear any previous session from a different role before showing auth
+      localStorage.removeItem('authToken')
+      localStorage.removeItem('userRole')
+      localStorage.removeItem('username')
+      localStorage.removeItem('userEmail')
       setScreen('auth')
     }
   }
@@ -194,7 +204,12 @@ function App() {
   }
 
   const handleGoHome = () => {
-    // Go back to landing without clearing session
+    // Clear session when going back to home — forces fresh login on next role select
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('userRole')
+    localStorage.removeItem('username')
+    localStorage.removeItem('userEmail')
+    setSelectedRole(null)
     setScreen('landing')
   }
 
@@ -211,6 +226,13 @@ function App() {
 
   return (
     <>
+      {/* ── INTRO SCREEN ── */}
+      <AnimatePresence>
+        {screen === 'intro' && (
+          <IntroScreen onDone={() => setScreen('landing')} />
+        )}
+      </AnimatePresence>
+
       {/* ── LANDING SCREEN ── */}
       <AnimatePresence>
         {screen === 'landing' && (
@@ -268,7 +290,7 @@ function App() {
 
             {/* Subtle dark overlay so content stays readable */}
             <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 1,
-              background: 'radial-gradient(ellipse at 50% 50%, rgba(5,8,22,0.55) 0%, rgba(5,8,22,0.82) 100%)' }} />
+              background: 'radial-gradient(ellipse at 50% 50%, rgba(5,8,22,0.25) 0%, rgba(5,8,22,0.45) 100%)' }} />
 
             <div className="fixed inset-0 bg-grid pointer-events-none opacity-20" style={{ zIndex: 1 }} />
 

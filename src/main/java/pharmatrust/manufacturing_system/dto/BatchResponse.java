@@ -21,6 +21,9 @@ public class BatchResponse {
     private Double aiVerificationScore;
     private String digitalSignature;
     private List<UnitItemResponse> units;
+    private String labReportHash;
+    private String labReportS3Key;
+    private String manufacturerCompany;
     
     // Constructors
     public BatchResponse() {}
@@ -32,13 +35,17 @@ public class BatchResponse {
         response.setMedicineName(batch.getMedicineName());
         response.setManufacturingDate(batch.getManufacturingDate());
         response.setExpiryDate(batch.getExpiryDate());
-        response.setManufacturerName(batch.getManufacturer() != null ? 
-            batch.getManufacturer().getFullName() : null);
+        if (batch.getManufacturer() != null) {
+            response.setManufacturerName(batch.getManufacturer().getFullName());
+            response.setManufacturerCompany(batch.getManufacturer().getShopName());
+        }
         response.setStatus(batch.getStatus().name());
         response.setTotalUnits(batch.getTotalUnits());
         response.setMerkleRoot(batch.getMerkleRoot());
         response.setBlockchainTxId(batch.getBlockchainTxId());
         response.setDigitalSignature(batch.getDigitalSignature());
+        response.setLabReportHash(batch.getLabReportHash());
+        response.setLabReportS3Key(batch.getLabReportS3Key());
         return response;
     }
     
@@ -154,4 +161,13 @@ public class BatchResponse {
     public void setUnits(List<UnitItemResponse> units) {
         this.units = units;
     }
+
+    public String getLabReportHash() { return labReportHash; }
+    public void setLabReportHash(String labReportHash) { this.labReportHash = labReportHash; }
+
+    public String getLabReportS3Key() { return labReportS3Key; }
+    public void setLabReportS3Key(String labReportS3Key) { this.labReportS3Key = labReportS3Key; }
+
+    public String getManufacturerCompany() { return manufacturerCompany; }
+    public void setManufacturerCompany(String manufacturerCompany) { this.manufacturerCompany = manufacturerCompany; }
 }

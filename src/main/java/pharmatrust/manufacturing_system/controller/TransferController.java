@@ -20,7 +20,7 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/api/v1/transfer")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 @Slf4j
 public class TransferController {
@@ -245,6 +245,76 @@ public class TransferController {
     }
 
 
+    /**
+     * POST /api/v1/transfer/{transferId}/accept - Accept a transfer (marks unit as ACTIVE under new owner)
+     */
+    @PostMapping("/{transferId}/accept")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> acceptTransfer(@PathVariable UUID transferId, Authentication authentication) {
+        OwnershipLog log = ownershipLogRepository.findById(transferId).orElse(null);
+        if (log == null) return ResponseEntity.notFound().build();
+
+        User receiver = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Confirm the receiver is the intended recipient
+        if (!log.getToUser().getId().equals(receiver.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Not authorized to accept this transfer"));
+        }
+
+        UnitItem unit = log.getUnit();
+        unit.setCurrentOwner(receiver);
+        unit.setStatus(UnitItem.UnitStatus.ACTIVE);
+        unitItemRepository.save(unit);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "transferId", transferId,
+                "serialNumber", unit.getSerialNumber(),
+                "acceptedBy", receiver.getEmail(),
+                "message", "Transfer accepted"
+        ));
+    }
+
+    /**
+     * POST /api/v1/transfer/{transferId}/reject - Reject a transfer (reverts unit to previous owner)
+     */
+    @PostMapping("/{transferId}/reject")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> rejectTransfer(@PathVariable UUID transferId,
+                                             @RequestBody Map<String, String> request,
+                                             Authentication authentication) {
+        OwnershipLog log = ownershipLogRepository.findById(transferId).orElse(null);
+        if (log == null) return ResponseEntity.notFound().build();
+
+        User receiver = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (!log.getToUser().getId().equals(receiver.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Not authorized to reject this transfer"));
+        }
+
+        String reason = request.getOrDefault("reason", "Rejected by recipient");
+
+        // Revert ownership to previous owner
+        UnitItem unit = log.getUnit();
+        unit.setCurrentOwner(log.getFromUser());
+        unit.setStatus(UnitItem.UnitStatus.ACTIVE);
+        unitItemRepository.save(unit);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "transferId", transferId,
+                "serialNumber", unit.getSerialNumber(),
+                "rejectedBy", receiver.getEmail(),
+                "reason", reason,
+                "message", "Transfer rejected, unit returned to sender"
+        ));
+    }
+
+    /**
+     * GET /api/v1/transfer/my-stock
+     */
     @GetMapping("/my-stock")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getMyStock(Authentication authentication) {
@@ -281,3 +351,4 @@ public class TransferController {
         return ResponseEntity.ok(resp);
     }
 }
+

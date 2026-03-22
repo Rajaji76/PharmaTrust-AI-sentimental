@@ -60,6 +60,9 @@ public class AuthenticationService {
         user.setPhoneNumber(request.getPhoneNumber());
         user.setGstNumber(request.getGstNumber());
         user.setCityState(request.getCityState());
+        // Patient govt ID
+        user.setGovtIdType(request.getGovtIdType());
+        user.setGovtIdNumber(request.getGovtIdNumber());
         
         User savedUser = userRepository.save(user);
         
@@ -96,6 +99,14 @@ public class AuthenticationService {
         // Check if user is active
         if (!user.getIsActive()) {
             throw new RuntimeException("User account is deactivated");
+        }
+
+        // Check if user is verified by regulator (Manufacturer, Distributor, Retailer, Pharmacist)
+        if ((user.getRole() == User.Role.MANUFACTURER ||
+             user.getRole() == User.Role.DISTRIBUTOR ||
+             user.getRole() == User.Role.RETAILER ||
+             user.getRole() == User.Role.PHARMACIST) && !user.getIsVerified()) {
+            throw new RuntimeException("PARTNER_NOT_VERIFIED: Your " + user.getRole().name().toLowerCase() + " account is pending regulator verification. Please wait for approval.");
         }
         
         // Update last login

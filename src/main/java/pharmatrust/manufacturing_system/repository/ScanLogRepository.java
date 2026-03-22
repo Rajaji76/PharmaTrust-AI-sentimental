@@ -71,4 +71,9 @@ public interface ScanLogRepository extends JpaRepository<ScanLog, UUID> {
      * Count scans by result type
      */
     Long countByScanResult(ScanLog.ScanResult scanResult);
+
+    /**
+     * Find latest 50 scans across all units (for scan history endpoint)
+     */
+    List<ScanLog> findTop50ByOrderByScannedAtDesc();
 }

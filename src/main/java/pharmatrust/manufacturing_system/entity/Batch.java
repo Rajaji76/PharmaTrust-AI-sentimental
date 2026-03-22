@@ -80,6 +80,15 @@ public class Batch {
     @Column(name = "expiry_warning_date")
     private LocalDate expiryWarningDate;
 
+    /**
+     * True once the blockchain transaction has received the required confirmations.
+     * Set by {@link pharmatrust.manufacturing_system.service.BlockchainTransactionMonitor}.
+     * Requirements: IR-004
+     */
+    @Column(name = "blockchain_confirmed", nullable = false)
+    @Builder.Default
+    private Boolean blockchainConfirmed = false;
+
     public enum BatchStatus {
         PROCESSING,
         PENDING_APPROVAL,

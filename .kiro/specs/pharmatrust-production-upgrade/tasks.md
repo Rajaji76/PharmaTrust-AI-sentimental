@@ -189,7 +189,7 @@ Key technical areas:
     - Test auto kill-switch triggering
     - _Requirements: TR-001_
 
-- [~] 9. Checkpoint - Ensure security and fraud detection systems are working
+- [x] 9. Checkpoint - Ensure security and fraud detection systems are working
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 10. Implement RabbitMQ message queue for async batch processing
@@ -272,15 +272,15 @@ Key technical areas:
     - Test rejection of insufficient approvals
     - _Requirements: TR-001_
 
-- [-] 13. Implement blockchain integration with gas optimization
-  - [~] 13.1 Create BlockchainService with Web3j integration
+- [x] 13. Implement blockchain integration with gas optimization
+  - [x] 13.1 Create BlockchainService with Web3j integration
     - Configure Web3j client for Ethereum network
     - Load smart contract ABI and address from configuration
     - Implement connection retry mechanism
     - Handle gas price fluctuations
     - _Requirements: BR-004, IR-003, IR-004_
 
-  - [~] 13.2 Implement batch token minting (Merkle root only)
+  - [x] 13.2 Implement batch token minting (Merkle root only)
     - Implement mintBatchToken() to store only Merkle root on-chain
     - Do NOT store individual units (gas optimization)
     - Store: batch_number, medicine_hash, dates, manufacturer_address, lab_report_hash, merkle_root, total_units
@@ -288,13 +288,13 @@ Key technical areas:
     - Store transaction ID in database
     - _Requirements: FR-018, FR-019_
 
-  - [~] 13.3 Implement recall event emission
+  - [x] 13.3 Implement recall event emission
     - Implement emitRecallEvent() to publish recall on blockchain
     - Store: batch_number, initiator_address, reason, timestamp, auto_triggered flag
     - Make recall events publicly queryable
     - _Requirements: FR-020_
 
-  - [~] 13.4 Implement transaction monitoring
+  - [x] 13.4 Implement transaction monitoring
     - Monitor transaction status asynchronously
     - Handle transaction failures with retry (max 3 attempts)
     - Log all blockchain interactions
@@ -308,7 +308,7 @@ Key technical areas:
     - Use Ganache or mock blockchain for testing
     - _Requirements: TR-002_
 
-- [~] 14. Checkpoint - Ensure async processing and blockchain integration are working
+- [x] 14. Checkpoint - Ensure async processing and blockchain integration are working
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 15. Implement batch management endpoints
@@ -443,18 +443,18 @@ Key technical areas:
     - Test job retry mechanism
     - _Requirements: TR-002_
 
-- [~] 20. Checkpoint - Ensure all API endpoints are working
+- [x] 20. Checkpoint - Ensure all API endpoints are working
   - Ensure all tests pass, ask the user if questions arise.
 
-- [~] 21. Implement data migration from SQLite to PostgreSQL
-  - [~] 21.1 Create migration scripts for existing data
+- [x] 21. Implement data migration from SQLite to PostgreSQL
+  - [x] 21.1 Create migration scripts for existing data
     - Export existing batch data from SQLite
     - Transform schema to PostgreSQL format
     - Migrate batch and unit data with integrity checks
     - Verify data integrity post-migration
     - _Requirements: DR-001_
 
-  - [~] 21.2 Migrate lab reports to AWS S3
+  - [x] 21.2 Migrate lab reports to AWS S3
     - Upload all existing lab reports to S3
     - Calculate and store SHA-256 hashes
     - Update database with S3 keys

@@ -36,7 +36,7 @@ public class AdvancedSecurityController {
      * Body: { "parentSerialNumber": "CARTON-001", "reason": "STOLEN" }
      */
     @PostMapping("/kill-hierarchy")
-    @PreAuthorize("hasRole('REGULATOR')")
+    @PreAuthorize("hasAuthority('REGULATOR')")
     public ResponseEntity<?> killHierarchy(@RequestBody KillHierarchyRequest request) {
         log.info("Kill hierarchy requested for parent: {} - Reason: {}", 
                 request.getParentSerialNumber(), request.getReason());
@@ -69,7 +69,7 @@ public class AdvancedSecurityController {
      * GET /api/v1/security/hierarchy-stats/{serialNumber}
      */
     @GetMapping("/hierarchy-stats/{serialNumber}")
-    @PreAuthorize("hasAnyRole('REGULATOR', 'MANUFACTURER')")
+    @PreAuthorize("hasAnyAuthority('REGULATOR', 'MANUFACTURER')")
     public ResponseEntity<?> getHierarchyStats(@PathVariable String serialNumber) {
         try {
             HierarchyKillSwitchService.HierarchyStats stats = 
@@ -118,7 +118,7 @@ public class AdvancedSecurityController {
      * Body: { "serialNumber": "BATCH-001-00001", "secret": "shared-secret" }
      */
     @PostMapping("/generate-totp")
-    @PreAuthorize("hasAnyRole('MANUFACTURER', 'DISTRIBUTOR')")
+    @PreAuthorize("hasAnyAuthority('MANUFACTURER', 'DISTRIBUTOR')")
     public ResponseEntity<?> generateTOTP(@RequestBody TOTPRequest request) {
         try {
             String totp = totpService.generateTOTP(request.getSecret(), request.getSerialNumber());

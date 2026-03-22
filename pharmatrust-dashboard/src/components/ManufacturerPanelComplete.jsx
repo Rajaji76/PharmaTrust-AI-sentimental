@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { batchAPI, jobAPI } from '../services/api'
+import { batchAPI, jobAPI, authAPI } from '../services/api'
 import AuthModal from './AuthModal'
 
 function JobStatusBadge({ status }) {
@@ -35,6 +35,8 @@ const StatCard = ({ label, value, color = 'electric-blue', icon }) => (
 export default function ManufacturerPanel({ onBatchCreated }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [isVerified, setIsVerified] = useState(null) // null = loading, false = pending, true = verified
+  const [verificationInfo, setVerificationInfo] = useState(null)
   const [activeTab, setActiveTab] = useState('create')
 
   const today = new Date().toISOString().split('T')[0]
@@ -66,13 +68,28 @@ export default function ManufacturerPanel({ onBatchCreated }) {
     const storedRole = localStorage.getItem('userRole')
     if (token && token.split('.').length === 3 && storedRole === 'MANUFACTURER') {
       setIsAuthenticated(true)
+      setShowAuthModal(false)
+      checkVerificationStatus()
     } else {
-      localStorage.removeItem('authToken')
-      localStorage.removeItem('userRole')
-      localStorage.removeItem('username')
+      if (token) {
+        localStorage.removeItem('authToken')
+        localStorage.removeItem('userRole')
+        localStorage.removeItem('username')
+        localStorage.removeItem('userEmail')
+      }
       setShowAuthModal(true)
     }
   }, [])
+
+  const checkVerificationStatus = async () => {
+    try {
+      const data = await authAPI.getMyVerificationStatus()
+      setIsVerified(data.isVerified)
+      setVerificationInfo(data)
+    } catch {
+      setIsVerified(false)
+    }
+  }
 
   useEffect(() => {
     if (isAuthenticated && activeTab === 'jobs') fetchJobs()
@@ -112,11 +129,18 @@ export default function ManufacturerPanel({ onBatchCreated }) {
     finally { setApprovalsLoading(false) }
   }
 
-  const handleAuthSuccess = () => { setIsAuthenticated(true); setShowAuthModal(false) }
+  const handleAuthSuccess = (response) => {
+    if (response?.role) localStorage.setItem('userRole', response.role)
+    if (response?.email) localStorage.setItem('username', response.email)
+    setShowAuthModal(false)
+    setIsAuthenticated(true)
+    checkVerificationStatus()
+  }
   const handleLogout = () => {
     localStorage.removeItem('authToken')
     localStorage.removeItem('userRole')
     localStorage.removeItem('username')
+    localStorage.removeItem('userEmail')
     setIsAuthenticated(false)
     setShowAuthModal(true)
   }
@@ -161,7 +185,7 @@ export default function ManufacturerPanel({ onBatchCreated }) {
 
   const handleApprove = async (batchId) => {
     try {
-      await batchAPI.approveBatch(batchId, approvalSignature)
+      await batchAPI.approveBatch(batchId, approvalSignature, 'PRODUCTION_HEAD')
       fetchPendingApprovals()
     } catch (err) { alert(err.response?.data?.error || 'Approval failed') }
   }
@@ -186,6 +210,78 @@ export default function ManufacturerPanel({ onBatchCreated }) {
     <div className="w-full">
       {showAuthModal && <AuthModal onAuthSuccess={handleAuthSuccess} allowedRoles={['MANUFACTURER']} />}
 
+      {/* ── PENDING VERIFICATION SCREEN ── */}
+      {isAuthenticated && isVerified === false && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-8 glow-border">
+          <div className="max-w-lg mx-auto text-center py-8">
+            <motion.div
+              animate={{ scale: [1, 1.05, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="w-24 h-24 mx-auto mb-6 rounded-full flex items-center justify-center text-5xl"
+              style={{ background: 'rgba(255,165,0,0.1)', border: '2px solid rgba(255,165,0,0.4)' }}>
+              ⏳
+            </motion.div>
+            <h2 className="text-2xl font-bold text-yellow-400 mb-3">Verification Pending</h2>
+            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+              Your manufacturer account has been registered successfully. A <span className="text-electric-blue font-semibold">PharmaTrust Regulator</span> needs to verify your company identity before you can access the dashboard.
+            </p>
+
+            {verificationInfo && (
+              <div className="text-left space-y-3 mb-6 p-4 rounded-xl"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Your Registered Details</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-500 text-xs">Full Name</p>
+                    <p className="text-white">{verificationInfo.fullName || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Company</p>
+                    <p className="text-white">{verificationInfo.shopName || verificationInfo.organization || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Role</p>
+                    <p className="text-electric-blue font-semibold">🏭 MANUFACTURER</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Status</p>
+                    <span className="px-2 py-0.5 rounded text-xs font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                      ⏳ PENDING VERIFICATION
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 rounded-xl mb-6"
+              style={{ background: 'rgba(0,217,255,0.05)', border: '1px solid rgba(0,217,255,0.15)' }}>
+              <p className="text-electric-blue text-xs font-semibold mb-2">📋 What happens next?</p>
+              <ol className="text-gray-400 text-xs space-y-1.5 text-left list-decimal list-inside">
+                <li>Regulator reviews your company details and license</li>
+                <li>Once approved, you'll be able to login and access the dashboard</li>
+                <li>You'll see a green "✅ Verified by PharmaTrust" badge on your account</li>
+              </ol>
+            </div>
+
+            <div className="flex gap-3 justify-center">
+              <button onClick={checkVerificationStatus}
+                className="px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                style={{ background: 'rgba(0,217,255,0.15)', border: '1px solid rgba(0,217,255,0.4)', color: '#00D9FF' }}>
+                🔄 Check Status
+              </button>
+              <button onClick={handleLogout}
+                className="px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                style={{ background: 'rgba(255,45,120,0.1)', border: '1px solid rgba(255,45,120,0.3)', color: '#ff6b9d' }}>
+                Logout
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── MAIN DASHBOARD (only if verified) ── */}
+      {(!isAuthenticated || isVerified !== true) ? null : (
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-8 glow-border">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
@@ -502,6 +598,7 @@ export default function ManufacturerPanel({ onBatchCreated }) {
           </motion.div>
         )}
       </motion.div>
+      )}
     </div>
   )
 }

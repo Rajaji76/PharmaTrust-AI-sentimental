@@ -1279,6 +1279,323 @@ CREATE INDEX idx_scan_timestamp ON scan_logs(scanned_at);
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2026-03-12  
-**Status**: Draft
+## 15. Partner Verification & RBAC Login Block
+
+### 15.1 Overview
+
+Manufacturers, Distributors, Retailers, and Pharmacists must be manually verified by a Regulator before they can log in. Unverified users are blocked at login with a role-specific pending message.
+
+### 15.2 Registration Fields
+
+When registering, partners provide identity fields stored on the `users` table:
+
+| Field | Description |
+|---|---|
+| `fullName` | Legal name of the person |
+| `organization` | Company / firm name |
+| `shopName` | Shop / pharmacy / warehouse name |
+| `shopAddress` | Physical address |
+| `licenseNumber` | Drug license / GST registration number |
+| `phoneNumber` | Contact number |
+| `gstNumber` | GST number |
+| `cityState` | City and state |
+
+### 15.3 Verification Flow
+
+```mermaid
+sequenceDiagram
+    participant Partner
+    participant AuthService
+    participant DB
+    participant Regulator
+
+    Partner->>AuthService: POST /auth/register (with identity fields)
+    AuthService->>DB: Save user with isVerified=false
+    AuthService-->>Partner: 201 Created (pending verification)
+
+    Partner->>AuthService: POST /auth/login
+    AuthService->>DB: findUser + check isVerified
+    DB-->>AuthService: isVerified=false
+    AuthService-->>Partner: 403 PARTNER_NOT_VERIFIED
+
+    Regulator->>RegulatorController: GET /regulator/registered-partners
+    RegulatorController-->>Regulator: List of unverified partners
+
+    Regulator->>RegulatorController: POST /regulator/verify-partner/{userId}
+    RegulatorController->>DB: isVerified=true, verifiedAt, verifiedBy
+    RegulatorController-->>Regulator: 200 OK
+
+    Partner->>AuthService: POST /auth/login (retry)
+    AuthService->>DB: isVerified=true
+    AuthService-->>Partner: 200 OK + JWT token
+```
+
+### 15.4 Backend Implementation
+
+**`AuthenticationService.java`** — login block logic:
+```java
+// Roles that require verification
+if (List.of(MANUFACTURER, DISTRIBUTOR, RETAILER, PHARMACIST).contains(user.getRole())) {
+    if (!user.getIsVerified()) {
+        throw new AuthException("PARTNER_NOT_VERIFIED",
+            "Your account is pending verification by PharmaTrust Regulator.");
+    }
+}
+```
+
+**`RegulatorController.java`** — verify/unverify endpoints:
+```
+POST /api/v1/regulator/verify-partner/{userId}    → sets isVerified=true, verifiedAt, verifiedBy
+POST /api/v1/regulator/unverify-partner/{userId}  → revokes verification
+GET  /api/v1/regulator/registered-partners        → all partners with verification status
+```
+
+### 15.5 Frontend Behavior
+
+- `AuthModal.jsx` catches `PARTNER_NOT_VERIFIED` error code and shows a role-specific pending screen
+- Pending screen shows: role icon, "Awaiting Verification" message, contact info
+- `RegulatorPanel.jsx` Partners tab shows "Awaiting Verification" and "Verified & Active" sub-sections per role
+
+---
+
+## 16. Government Scheme Dispense Portal
+
+### 16.1 Overview
+
+Retailers can dispense medicines under government schemes (PMJAY, Jan Aushadhi, etc.) with AI-powered safety checks using the patient's ABHA (Ayushman Bharat Health Account) ID.
+
+### 16.2 Flow
+
+```mermaid
+sequenceDiagram
+    participant Retailer
+    participant GovtSchemeController
+    participant AbhaService
+
+    Retailer->>GovtSchemeController: POST /govt-scheme/lookup-patient {abhaId}
+    GovtSchemeController->>AbhaService: fetchHealthProfile(abhaId)
+    AbhaService-->>GovtSchemeController: PatientHealthProfile
+    GovtSchemeController-->>Retailer: Patient name, allergies, conditions, medications
+
+    Retailer->>GovtSchemeController: POST /govt-scheme/check-safety {abhaId, medicineName}
+    GovtSchemeController->>AbhaService: checkMedicineSafety(profile, medicine)
+    AbhaService-->>GovtSchemeController: RiskAssessment {level, message, hasRisk}
+    alt Risk Detected
+        GovtSchemeController->>GovtSchemeController: simulateSmsAlert(phone, message)
+        GovtSchemeController-->>Retailer: {riskLevel: CRITICAL, smsAlertSent: true}
+    else Safe
+        GovtSchemeController-->>Retailer: {riskLevel: SAFE}
+    end
+
+    Retailer->>GovtSchemeController: POST /govt-scheme/dispense {abhaId, medicine, qty, scheme}
+    GovtSchemeController->>GovtSchemeController: Save to in-memory dispenseLog
+    GovtSchemeController-->>Retailer: {success: true, dispenseId}
+```
+
+### 16.3 API Endpoints
+
+```
+POST /api/v1/govt-scheme/lookup-patient       → Fetch patient health profile by ABHA ID / phone
+POST /api/v1/govt-scheme/check-safety         → AI safety check (allergy / contraindication / interaction)
+POST /api/v1/govt-scheme/dispense             → Record dispense event
+GET  /api/v1/govt-scheme/my-dispense-history  → Retailer's own dispense history
+```
+
+### 16.4 AbhaService — Risk Assessment Logic
+
+`AbhaService.checkMedicineSafety()` checks in order:
+
+1. **Known Allergies** — if medicine name matches any allergy → `CRITICAL`
+2. **Contraindicated Drugs** — if medicine is in patient's contraindication list → `CRITICAL`
+3. **Drug Interactions** — checks against a built-in interaction map (e.g. warfarin + aspirin) → `HIGH`
+4. **Condition Warnings** — condition-specific cautions (e.g. NSAIDs in kidney disease) → `MEDIUM`
+
+Risk levels: `SAFE | MEDIUM | HIGH | CRITICAL`
+
+### 16.5 ABHA Integration Status
+
+- Current state: **Mock/simulated** — `AbhaService.fetchHealthProfile()` returns deterministic demo profiles based on ABHA ID suffix
+- Future: Real ABDM API integration via `POST https://healthidsbx.abdm.gov.in/api/v1/search/existsByHealthId` + FHIR R4 consent flow
+- SMS alerts: Currently simulated via `log.warn()` — future: AWS SNS or MSG91
+
+### 16.6 Frontend (RetailerPanel.jsx)
+
+3-step UI flow:
+1. Step 1 — Enter ABHA ID / phone → fetch patient profile
+2. Step 2 — Enter medicine name → run safety check → show risk badge
+3. Step 3 — Confirm dispense → save record
+
+---
+
+## 17. Complaint System
+
+### 17.1 Overview
+
+Any user (patient, retailer, distributor) can file a complaint about a medicine. Complaints are analyzed by AI and visible to regulators.
+
+### 17.2 API Endpoints
+
+```
+POST /api/v1/complaints                    → File a new complaint
+GET  /api/v1/complaints                    → List complaints (regulator)
+GET  /api/v1/complaints/{id}               → Get complaint details
+POST /api/v1/complaints/{id}/acknowledge   → Acknowledge complaint (regulator)
+```
+
+### 17.3 Complaint Entity Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `reportedBy` | User FK | Who filed the complaint |
+| `medicineName` | String | Medicine name |
+| `batchNumber` | String | Batch number (optional) |
+| `complaintType` | Enum | SIDE_EFFECT, COUNTERFEIT, QUALITY_ISSUE, WRONG_MEDICINE, OTHER |
+| `description` | String | Detailed description |
+| `severity` | Enum | LOW, MEDIUM, HIGH, CRITICAL |
+| `aiAnalysis` | String | AI-generated analysis text |
+| `status` | Enum | OPEN, UNDER_REVIEW, RESOLVED, DISMISSED |
+| `createdAt` | Timestamp | When filed |
+
+### 17.4 AI Analysis
+
+`ComplaintAnalysisService` analyzes complaint text and auto-assigns severity based on keywords:
+- CRITICAL: "death", "hospitalized", "severe reaction", "counterfeit"
+- HIGH: "allergic reaction", "wrong medicine", "side effect"
+- MEDIUM: "quality issue", "packaging", "expiry"
+
+---
+
+## 18. RegulatorPanel — 9-Tab UI Design
+
+### 18.1 Tab Structure
+
+| Tab | Description |
+|---|---|
+| Overview | Stats cards: total units, active, recalled, flagged, suspicious scans. Units by owner role breakdown. |
+| Alerts | Fraud alerts list with severity badges. Click → AlertDetailModal with scan history. |
+| Complaints | Complaint cards with severity badges. Click → AlertDetailModal. |
+| Batches | All batches table with status badges. |
+| Recalls | Active recall events list. |
+| Audit Logs | Last 100 audit log entries. |
+| Partners | Manufacturers / Distributors / Retailers in "Awaiting Verification" and "Verified & Active" sub-sections. Verify / Revoke buttons. |
+| Tracker | Batch location tracker — enter batch number → see distributor/retailer breakdown with unit counts and shop identity. |
+| Kill Switch | Emergency recall by serial number. Confirmation dialog before activation. |
+
+### 18.2 AlertDetailModal
+
+Shown when clicking an alert or complaint card. Displays:
+- Severity badge (color-coded)
+- Medicine info (name, batch number)
+- Reporter identity
+- AI analysis text
+- Scan history from `/verify/{serial}/history` endpoint:
+  - Total scan count
+  - Per-scan: result, location, timestamp
+
+### 18.3 Tracker Tab — Response Structure
+
+`GET /api/v1/regulator/batch-location/{batchNumber}` returns:
+
+```json
+{
+  "batchNumber": "BATCH-001",
+  "medicineName": "Paracetamol 500mg",
+  "batchStatus": "ACTIVE",
+  "expiryDate": "2027-01-01",
+  "totalUnits": 1000,
+  "summary": {
+    "MANUFACTURER": 500,
+    "DISTRIBUTOR": 300,
+    "RETAILER": 200
+  },
+  "distributors": [
+    {
+      "email": "dist@example.com",
+      "name": "Rajesh Distributors",
+      "shopName": "Rajesh Medical Distributors",
+      "shopAddress": "123 MG Road, Mumbai",
+      "licenseNumber": "DL-MH-12345",
+      "phoneNumber": "9876543210",
+      "gstNumber": "27ABCDE1234F1Z5",
+      "cityState": "Mumbai, Maharashtra",
+      "unitCount": 300
+    }
+  ],
+  "retailers": [...],
+  "units": [
+    {
+      "serialNumber": "...",
+      "unitType": "TABLET",
+      "status": "ACTIVE",
+      "isActive": true,
+      "currentOwnerRole": "DISTRIBUTOR",
+      "currentOwnerEmail": "...",
+      "shopName": "...",
+      "lastScannedAt": "...",
+      "lastScanLocation": "19.0760,72.8777",
+      "lastScanResult": "GENUINE"
+    }
+  ]
+}
+```
+
+### 18.4 UI Style
+
+- Background: `#0f172a` (dark slate)
+- Card background: `#1e293b`
+- Accent colors: emerald (active), red (recalled/critical), amber (warning), blue (info)
+- No `framer-motion` — pure CSS transitions
+- No hardcoded/fake data — all from real API calls
+
+---
+
+## 19. Updated API Endpoints Reference
+
+### 19.1 Regulator Endpoints (Complete)
+
+```
+GET  /api/v1/regulator/alerts                      → Fraud alerts
+GET  /api/v1/regulator/recalls                     → Active recall events
+GET  /api/v1/regulator/flagged-batches             → Recalled/quarantined batches
+GET  /api/v1/regulator/audit-logs                  → Last 100 audit log entries
+GET  /api/v1/regulator/batches                     → All batches (safety fields only)
+GET  /api/v1/regulator/stats                       → Supply chain stats + units by owner role
+GET  /api/v1/regulator/batch-location/{batchNum}   → Full batch location tracker
+GET  /api/v1/regulator/registered-partners         → All partners with verification status
+POST /api/v1/regulator/kill-switch                 → Emergency recall by serial number
+POST /api/v1/regulator/verify-partner/{userId}     → Verify a partner
+POST /api/v1/regulator/unverify-partner/{userId}   → Revoke partner verification
+```
+
+### 19.2 Government Scheme Endpoints
+
+```
+POST /api/v1/govt-scheme/lookup-patient            → Patient health profile by ABHA ID
+POST /api/v1/govt-scheme/check-safety              → AI safety check before dispensing
+POST /api/v1/govt-scheme/dispense                  → Record dispense event
+GET  /api/v1/govt-scheme/my-dispense-history       → Retailer's dispense history
+```
+
+### 19.3 Complaint Endpoints
+
+```
+POST /api/v1/complaints                            → File complaint
+GET  /api/v1/complaints                            → List complaints
+GET  /api/v1/complaints/{id}                       → Complaint details
+POST /api/v1/complaints/{id}/acknowledge           → Acknowledge (regulator)
+```
+
+### 19.4 Verify Endpoints (Updated)
+
+```
+POST /api/v1/verify/scan                           → Verify QR code
+GET  /api/v1/verify/unit/{serial}                  → Unit details
+GET  /api/v1/verify/{serial}/history               → Scan history (used by AlertDetailModal)
+```
+
+---
+
+**Document Version**: 2.0  
+**Last Updated**: 2026-03-21  
+**Status**: Updated — reflects all features implemented through Session 1

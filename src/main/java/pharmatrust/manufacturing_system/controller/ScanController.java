@@ -7,16 +7,21 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import pharmatrust.manufacturing_system.dto.ScanRequest;
 import pharmatrust.manufacturing_system.dto.ScanResponse;
+import pharmatrust.manufacturing_system.entity.ScanLog;
 import pharmatrust.manufacturing_system.entity.UnitItem;
+import pharmatrust.manufacturing_system.repository.ScanLogRepository;
 import pharmatrust.manufacturing_system.repository.UnitItemRepository;
 import pharmatrust.manufacturing_system.service.QRCodeService;
 import pharmatrust.manufacturing_system.service.ScanService;
 
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/scan")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 public class ScanController {
     
     @Autowired
@@ -27,6 +32,9 @@ public class ScanController {
 
     @Autowired
     private QRCodeService qrCodeService;
+
+    @Autowired
+    private ScanLogRepository scanLogRepository;
     
     /**
      * Scan a unit (Public endpoint for patients/consumers)
@@ -60,5 +68,24 @@ public class ScanController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    /**
+     * GET /api/v1/scan/history - Scan history for authenticated user (used by frontend scanAPI.getScanHistory)
+     */
+    @GetMapping("/history")
+    public ResponseEntity<?> getScanHistory() {
+        // Returns last 50 scan logs across all units — frontend uses this for display only
+        List<ScanLog> logs = scanLogRepository.findTop50ByOrderByScannedAtDesc();
+        List<Map<String, Object>> result = logs.stream().map(l -> {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("scannedAt", l.getScannedAt().toString());
+            entry.put("result", l.getScanResult().name());
+            entry.put("serialNumber", l.getUnit() != null ? l.getUnit().getSerialNumber() : "");
+            entry.put("anomalyScore", l.getAnomalyScore() != null ? l.getAnomalyScore() : 0.0);
+            entry.put("autoFlagged", l.getAutoFlagged() != null && l.getAutoFlagged());
+            return entry;
+        }).toList();
+        return ResponseEntity.ok(result);
     }
 }

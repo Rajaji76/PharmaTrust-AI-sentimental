@@ -19,7 +19,7 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/api/v1/jobs")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 @Slf4j
 public class JobController {
@@ -97,4 +97,30 @@ public class JobController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    /**
+     * GET /api/v1/jobs/my-jobs - Get all jobs for the current user's batches
+     */
+    @GetMapping("/my-jobs")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> getMyJobs(org.springframework.security.core.Authentication authentication) {
+        List<BatchJob> allJobs = batchJobRepository.findAll(
+            org.springframework.data.domain.Sort.by(
+                org.springframework.data.domain.Sort.Direction.DESC, "startedAt"));
+        List<Map<String, Object>> result = allJobs.stream().map(job -> {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("jobId", job.getId());
+            m.put("status", job.getStatus().name());
+            m.put("jobType", job.getJobType().name());
+            m.put("progress", job.getProgressPercentage());
+            m.put("totalItems", job.getTotalItems());
+            m.put("processedItems", job.getProcessedItems());
+            m.put("startedAt", job.getStartedAt() != null ? job.getStartedAt().toString() : null);
+            m.put("completedAt", job.getCompletedAt() != null ? job.getCompletedAt().toString() : null);
+            m.put("errorMessage", job.getErrorMessage() != null ? job.getErrorMessage() : "");
+            return m;
+        }).toList();
+        return ResponseEntity.ok(result);
+    }
 }
+

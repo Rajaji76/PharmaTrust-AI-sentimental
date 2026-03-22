@@ -9,7 +9,7 @@ import pharmatrust.manufacturing_system.service.SupplyChainService;
 
 @RestController
 @RequestMapping("/api/v1/supply-chain")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://10.184.81.201:3000", "http://10.184.81.201:5173"})
+@CrossOrigin(origins = "*")
 public class SupplyChainController {
     
     @Autowired
@@ -25,3 +25,4 @@ public class SupplyChainController {
         return ResponseEntity.ok(stats);
     }
 }
+

@@ -49,6 +49,13 @@ public class User {
     @Column(name = "city_state", length = 100)
     private String cityState;
 
+    // Patient identity verification — Government ID
+    @Column(name = "govt_id_type", length = 50)
+    private String govtIdType; // e.g. AADHAAR, ABHA, AYUSHMAN, VOTER_ID
+
+    @Column(name = "govt_id_number", length = 100)
+    private String govtIdNumber;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 50)
     private Role role;
@@ -71,6 +78,16 @@ public class User {
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
+
+    // Regulator identity verification
+    @Column(name = "is_verified", nullable = false)
+    private Boolean isVerified = false;
+
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
+
+    @Column(name = "verified_by", length = 255)
+    private String verifiedBy; // email of the regulator who verified
 
     public enum Role {
         MANUFACTURER,
@@ -207,4 +224,19 @@ public class User {
 
     public String getCityState() { return cityState; }
     public void setCityState(String cityState) { this.cityState = cityState; }
+
+    public String getGovtIdType() { return govtIdType; }
+    public void setGovtIdType(String govtIdType) { this.govtIdType = govtIdType; }
+
+    public String getGovtIdNumber() { return govtIdNumber; }
+    public void setGovtIdNumber(String govtIdNumber) { this.govtIdNumber = govtIdNumber; }
+
+    public Boolean getIsVerified() { return isVerified != null && isVerified; }
+    public void setIsVerified(Boolean isVerified) { this.isVerified = isVerified; }
+
+    public LocalDateTime getVerifiedAt() { return verifiedAt; }
+    public void setVerifiedAt(LocalDateTime verifiedAt) { this.verifiedAt = verifiedAt; }
+
+    public String getVerifiedBy() { return verifiedBy; }
+    public void setVerifiedBy(String verifiedBy) { this.verifiedBy = verifiedBy; }
 }

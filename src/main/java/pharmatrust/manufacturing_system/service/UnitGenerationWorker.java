@@ -28,6 +28,7 @@ public class UnitGenerationWorker {
     private final BulkSerializationService bulkSerializationService;
     private final CryptographyService cryptographyService;
     private final BlockchainTokenService blockchainTokenService;
+    private final BlockchainService blockchainService;
     private final MessageQueueService messageQueueService;
 
     /**
@@ -106,10 +107,15 @@ public class UnitGenerationWorker {
     }
 
     /**
-     * Process blockchain minting jobs
+     * Process blockchain minting jobs (FR-018, FR-019)
+     *
+     * <p>Mints a batch token on-chain storing only the Merkle root (gas optimisation).
+     * Stores: batch_number, medicine_hash, dates, manufacturer_address,
+     * lab_report_hash, merkle_root, total_units.
+     * Waits for 12 confirmations before marking the job complete and persists
+     * the transaction hash in the database.
      */
     @RabbitListener(queues = "${queue.blockchain-mint:blockchain-mint-queue}", autoStartup = "${spring.rabbitmq.listener.simple.auto-startup:false}")
-    @Transactional
     public void processBlockchainMintJob(Map<String, Object> message) {
         String jobId = (String) message.get("jobId");
         String batchId = (String) message.get("batchId");
@@ -123,28 +129,44 @@ public class UnitGenerationWorker {
             Batch batch = batchRepository.findById(UUID.fromString(batchId))
                     .orElseThrow(() -> new RuntimeException("Batch not found: " + batchId));
 
-            BlockchainTokenService.BlockchainTokenResult result = blockchainTokenService.mintBatchToken(
+            // Derive medicine hash and manufacturer address for on-chain storage
+            String medicineHash = cryptographyService.hashSHA256(batch.getMedicineName());
+            String manufacturerAddr = batch.getManufacturer() != null
+                    ? batch.getManufacturer().getEmail()   // fallback identifier when no ETH address
+                    : "";
+
+            // Mint batch token — only Merkle root stored on-chain (gas optimisation, FR-018)
+            String txHash = blockchainService.mintBatchToken(
                     batch.getBatchNumber(),
-                    batch.getMedicineName(),
+                    medicineHash,
                     batch.getManufacturingDate(),
                     batch.getExpiryDate(),
-                    batch.getLabReportHash(),
-                    batch.getDigitalSignature(),
-                    batch.getMerkleRoot()
+                    manufacturerAddr,
+                    batch.getLabReportHash() != null ? batch.getLabReportHash() : "",
+                    batch.getMerkleRoot() != null ? batch.getMerkleRoot() : "",
+                    batch.getTotalUnits() != null ? batch.getTotalUnits().longValue() : 0L
             );
 
-            if (result.isSuccess()) {
-                batch.setBlockchainTxId(result.getTransactionId());
-                batch.setStatus(Batch.BatchStatus.ACTIVE);
-                batchRepository.save(batch);
-                messageQueueService.completeJob(jobUUID);
-                log.info("Blockchain mint completed: txId={}", result.getTransactionId());
-            } else {
-                throw new RuntimeException("Blockchain mint failed: " + result.getErrorMessage());
+            if (txHash == null) {
+                throw new RuntimeException("Blockchain mint returned null transaction hash");
             }
 
+            // Store transaction ID immediately so it is persisted even if confirmation wait fails
+            batch.setBlockchainTxId(txHash);
+            batchRepository.save(batch);
+            log.info("Blockchain mint submitted — batch: {}, txHash: {}", batch.getBatchNumber(), txHash);
+
+            // Wait for 12 confirmations before marking complete (FR-019)
+            boolean confirmed = blockchainService.waitForConfirmations(txHash);
+            if (!confirmed) {
+                throw new RuntimeException("Transaction did not reach 12 confirmations: " + txHash);
+            }
+
+            messageQueueService.completeJob(jobUUID);
+            log.info("Blockchain mint confirmed (12 confirmations): txHash={}", txHash);
+
         } catch (Exception e) {
-            log.error("Blockchain mint job failed: {}", jobId, e);
+            log.error("Blockchain mint job failed: jobId={}", jobId, e);
             messageQueueService.failJob(jobUUID, e.getMessage());
             throw e;
         }

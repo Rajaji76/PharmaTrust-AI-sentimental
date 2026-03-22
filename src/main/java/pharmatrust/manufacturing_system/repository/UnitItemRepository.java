@@ -147,4 +147,9 @@ public interface UnitItemRepository extends JpaRepository<UnitItem, UUID> {
      */
     @Query("SELECT COUNT(u) FROM UnitItem u WHERE u.scanCount >= u.maxScanLimit")
     Long countFlaggedUnits();
+
+    /**
+     * Count units still with manufacturer (no current owner)
+     */
+    Long countByCurrentOwnerIsNull();
 }
